@@ -21,6 +21,34 @@ dotnet run --project src/MemoryMcp.Server
 
 The server uses stdio transport and reads configuration from `src/MemoryMcp.Server/appsettings.json`.
 
+### GapGPT / OpenAI-compatible API
+
+To use a custom OpenAI-compatible endpoint such as `https://api.gapgpt.app/v1`:
+
+```json
+"Embedding": {
+  "Provider": "GapGpt",
+  "Model": "text-embedding-3-small",
+  "BaseUrl": "https://api.gapgpt.app/v1",
+  "ApiKey": ""
+},
+"AI": {
+  "Provider": "GapGpt",
+  "Model": "gapgpt-qwen-3.5",
+  "BaseUrl": "https://api.gapgpt.app/v1",
+  "ApiKey": ""
+}
+```
+
+Prefer environment variables for secrets:
+
+```bash
+export MEMORYMCP_AI_API_KEY="your-gapgpt-key"
+export MEMORYMCP_EMBEDDING_API_KEY="your-gapgpt-key"
+```
+
+`AI` drives conversation summarization. `Embedding` drives semantic search, deduplication, and contradiction detection.
+
 ## Main MCP tools
 
 - `store_memory`

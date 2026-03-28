@@ -17,10 +17,19 @@ public static class DependencyInjection
     {
         var connectionString = configuration.GetSection("Storage")["ConnectionString"]
                                ?? "Data Source=memory.db";
-        var embeddingDimensions = int.TryParse(configuration.GetSection("Embedding")["Dimensions"], out var parsedDimensions)
+        var embeddingSection = configuration.GetSection("Embedding");
+        var aiSection = configuration.GetSection("AI");
+        var embeddingDimensions = int.TryParse(embeddingSection["Dimensions"], out var parsedDimensions)
             ? parsedDimensions
             : 256;
-        var embeddingModel = configuration.GetSection("Embedding")["Model"] ?? "nomic-embed-text";
+        var embeddingModel = embeddingSection["Model"] ?? "nomic-embed-text";
+        var embeddingProvider = embeddingSection["Provider"] ?? "Ollama";
+        var embeddingBaseUrl = embeddingSection["BaseUrl"] ?? "http://localhost:11434";
+        var embeddingApiKey = ResolveSecret(embeddingSection, "ApiKey", "MEMORYMCP_EMBEDDING_API_KEY");
+        var aiProvider = aiSection["Provider"] ?? "Simple";
+        var aiModel = aiSection["Model"] ?? "gapgpt-qwen-3.5";
+        var aiBaseUrl = aiSection["BaseUrl"] ?? "https://api.gapgpt.app/v1";
+        var aiApiKey = ResolveSecret(aiSection, "ApiKey", "MEMORYMCP_AI_API_KEY");
 
         services.AddDbContext<MemoryDbContext>(options =>
             options.UseSqlite(connectionString));
@@ -30,18 +39,53 @@ public static class DependencyInjection
         services.AddScoped<IExportService, JsonExportService>();
         services.AddSingleton(new EmbeddingProviderOptions
         {
+            Provider = embeddingProvider,
             Model = embeddingModel,
+            BaseUrl = embeddingBaseUrl,
+            ApiKey = embeddingApiKey,
             Dimensions = embeddingDimensions
         });
-        services.AddSingleton<ITextSummarizer, SimpleTextSummarizer>();
+        services.AddSingleton(new AiSummarizerOptions
+        {
+            Provider = aiProvider,
+            Model = aiModel,
+            BaseUrl = aiBaseUrl,
+            ApiKey = aiApiKey
+        });
+
+        services.AddSingleton<ITextSummarizer>(serviceProvider =>
+        {
+            var options = serviceProvider.GetRequiredService<AiSummarizerOptions>();
+            return options.Provider.ToLowerInvariant() switch
+            {
+                "gapgpt" or "openaicompatible" or "openai-compatible" when !string.IsNullOrWhiteSpace(options.ApiKey)
+                    => ActivatorUtilities.CreateInstance<OpenAiResponseSummarizer>(serviceProvider),
+                _ => ActivatorUtilities.CreateInstance<SimpleTextSummarizer>(serviceProvider)
+            };
+        });
 
         services.AddHttpClient<OllamaEmbeddingProvider>(client =>
         {
-            var baseUrl = configuration.GetSection("Embedding")["BaseUrl"] ?? "http://localhost:11434";
-            client.BaseAddress = new Uri(baseUrl);
+            client.BaseAddress = new Uri(embeddingBaseUrl);
         });
-        services.AddScoped<IEmbeddingProvider, OllamaEmbeddingProvider>();
+        services.AddScoped<IEmbeddingProvider>(serviceProvider =>
+        {
+            var options = serviceProvider.GetRequiredService<EmbeddingProviderOptions>();
+            return options.Provider.ToLowerInvariant() switch
+            {
+                "gapgpt" or "openaicompatible" or "openai-compatible" when !string.IsNullOrWhiteSpace(options.ApiKey)
+                    => ActivatorUtilities.CreateInstance<OpenAiCompatibleEmbeddingProvider>(serviceProvider),
+                _ => ActivatorUtilities.CreateInstance<OllamaEmbeddingProvider>(serviceProvider)
+            };
+        });
 
         return services;
+    }
+
+    private static string ResolveSecret(IConfigurationSection section, string keyName, string environmentVariableName)
+    {
+        return Environment.GetEnvironmentVariable(environmentVariableName)
+            ?? section[keyName]
+            ?? string.Empty;
     }
 }

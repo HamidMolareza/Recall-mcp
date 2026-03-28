@@ -25,6 +25,7 @@ try
 
     builder.Services.Configure<StorageSettings>(builder.Configuration.GetSection(StorageSettings.SectionName));
     builder.Services.Configure<EmbeddingSettings>(builder.Configuration.GetSection(EmbeddingSettings.SectionName));
+    builder.Services.Configure<AiSettings>(builder.Configuration.GetSection(AiSettings.SectionName));
     builder.Services.Configure<MemorySettings>(builder.Configuration.GetSection(MemorySettings.SectionName));
     builder.Services.Configure<LoggingSettings>(builder.Configuration.GetSection(LoggingSettings.SectionName));
     builder.Services.Configure<ServerSettings>(builder.Configuration.GetSection(ServerSettings.SectionName));
