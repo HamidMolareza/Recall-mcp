@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>MemoryMcp.Server</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="1.*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.0-*" />
+    <PackageReference Include="Serilog.AspNetCore" Version="9.*" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="9.*" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.*" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.*" />
+    <PackageReference Include="Serilog.Expressions" Version="5.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MemoryMcp.Domain\MemoryMcp.Domain.csproj" />
+    <ProjectReference Include="..\MemoryMcp.Application\MemoryMcp.Application.csproj" />
+    <ProjectReference Include="..\MemoryMcp.Infrastructure\MemoryMcp.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
