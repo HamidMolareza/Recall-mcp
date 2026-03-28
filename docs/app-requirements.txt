@@ -1,0 +1,433 @@
+# MCP Persistent Memory Tool — .NET 10 Implementation Plan
+
+---
+
+## 1. Functional Requirements
+
+### Memory Management (Core)
+- **CRUD** — create, read, update, delete memory entries
+- **List** — paginated listing with filtering and sorting
+- **Bulk wipe** — delete all memories in a namespace
+- **Versioning** — keep edit history per entry, allow rollback
+
+### Organization
+- **Namespaces** — hierarchical scopes (`work/project-x`)
+- **Tags** — multiple labels per entry
+- **Memory types** — `Fact`, `Preference`, `Context`, `Instruction`, `Episode`, `Entity`
+- **Linked memories** — directional relationships with labels between entries
+
+### Search & Retrieval
+- **Semantic search** — vector similarity via embeddings
+- **Full-text search** — keyword/phrase matching
+- **Filtered queries** — by tag, type, namespace, date range
+- **Relevance scoring** — return similarity score with results
+
+### Intelligence
+- **Contradiction detection** — flag conflicts with existing memories on store/update
+- **Deduplication** — detect near-duplicate entries
+- **Staleness detection** — flag memories not accessed/confirmed beyond a threshold
+- **Conversation summarization** — extract and store key points from text
+
+### Temporal
+- **Timestamps** — `CreatedAt`, `UpdatedAt`, `LastAccessedAt`
+- **TTL** — optional expiration per entry
+- **Expired entry cleanup** — background or on-demand
+
+### Data Portability
+- **Export** — JSON and Markdown
+- **Import** — JSON
+- **Backup / Restore** — full database
+
+---
+
+## 2. Non-Functional Requirements
+
+| Concern | Requirement |
+|---|---|
+| **Startup time** | Fast — MCP servers are launched on demand by the client |
+| **Storage** | Local-first (SQLite default), optionally PostgreSQL |
+| **Memory footprint** | Low — suitable for running alongside an IDE |
+| **Thread safety** | All operations must be safe for concurrent tool calls |
+| **Configurability** | Embedding provider, storage backend, TTL defaults via config |
+| **Extensibility** | New storage backends and embedding providers without touching core logic |
+| **Logging** | Structured logging via **Serilog** with configurable levels |
+| **Log persistence** | Audit logs and error logs saved to files; log output path configured via `appsettings.json` (dynamic, not hardcoded) |
+| **Log sinks** | Console (development) + Rolling File (always); additional sinks optional |
+| **Testability** | All business logic unit-testable, infrastructure mockable. **xUnit** is the test framework; tests live under `tests/` with per-layer projects |
+| **Transport** | stdio (primary), HTTP+SSE (optional) |
+
+---
+
+## 3. Architecture — Clean Architecture (Pragmatic)
+
+Clean Architecture is the right fit here because:
+- The domain is well-defined and should be independent of MCP, EF Core, or any embedding API.
+- Storage backends and embedding providers need to be swappable.
+- It's not overkill for this scope — we just keep each layer thin.
+
+┌─────────────────────────────────────────────────┐
+│              MemoryMcp.Server                    │  ← MCP host, tool definitions
+│         (Presentation / Entry Point)             │
+├─────────────────────────────────────────────────┤
+│            MemoryMcp.Application                 │  ← Use cases, DTOs, interfaces
+│          (Business Logic Orchestration)          │
+├─────────────────────────────────────────────────┤
+│              MemoryMcp.Domain                    │  ← Entities, enums, value objects
+│             (Core Business Rules)                │
+├─────────────────────────────────────────────────┤
+│          MemoryMcp.Infrastructure                │  ← EF Core, embeddings, vector search
+│         (External Concerns Implementation)       │
+└─────────────────────────────────────────────────┘
+
+
+**Dependency rule**: dependencies point inward. `Domain` depends on nothing. `Application` depends on `Domain`. `Infrastructure` and `Server` depend on `Application` + `Domain`.
+
+---
+
+## 4. Project Structure
+
+MemoryMcp/
+├── src/
+│   ├── MemoryMcp.Domain/
+│   │   ├── Entities/
+│   │   │   ├── MemoryEntry.cs
+│   │   │   ├── MemoryVersion.cs
+│   │   │   ├── MemoryLink.cs
+│   │   │   └── Tag.cs
+│   │   ├── Enums/
+│   │   │   ├── MemoryType.cs
+│   │   │   └── LinkRelation.cs
+│   │   ├── ValueObjects/
+│   │   │   ├── Namespace.cs
+│   │   │   ├── EmbeddingVector.cs
+│   │   │   └── RelevanceScore.cs
+│   │   └── Exceptions/
+│   │       ├── MemoryNotFoundException.cs
+│   │       └── DuplicateMemoryException.cs
+│   │
+│   ├── MemoryMcp.Application/
+│   │   ├── Interfaces/
+│   │   │   ├── IMemoryRepository.cs
+│   │   │   ├── IVectorStore.cs
+│   │   │   ├── IEmbeddingProvider.cs
+│   │   │   ├── ITextSummarizer.cs
+│   │   │   └── IExportService.cs
+│   │   ├── Services/
+│   │   │   ├── MemoryService.cs
+│   │   │   ├── SearchService.cs
+│   │   │   ├── ContradictionDetector.cs
+│   │   │   ├── DeduplicationService.cs
+│   │   │   └── StalenessService.cs
+│   │   ├── DTOs/
+│   │   │   ├── StoreMemoryRequest.cs
+│   │   │   ├── SearchMemoryRequest.cs
+│   │   │   ├── MemoryResponse.cs
+│   │   │   ├── SearchResult.cs
+│   │   │   └── PaginatedList.cs
+│   │   ├── Validators/
+│   │   │   ├── StoreMemoryValidator.cs
+│   │   │   └── SearchMemoryValidator.cs
+│   │   └── DependencyInjection.cs
+│   │
+│   ├── MemoryMcp.Infrastructure/
+│   │   ├── Persistence/
+│   │   │   ├── MemoryDbContext.cs
+│   │   │   ├── Configurations/
+│   │   │   │   ├── MemoryEntryConfiguration.cs
+│   │   │   │   ├── MemoryLinkConfiguration.cs
+│   │   │   │   └── TagConfiguration.cs
+│   │   │   ├── Repositories/
+│   │   │   │   └── SqliteMemoryRepository.cs
+│   │   │   └── Migrations/
+│   │   ├── VectorSearch/
+│   │   │   ├── InMemoryVectorStore.cs         # brute-force cosine similarity
+│   │   │   └── SqliteVectorStore.cs           # vectors stored as BLOBs
+│   │   ├── Embeddings/
+│   │   │   ├── OllamaEmbeddingProvider.cs
+│   │   │   ├── OpenAiEmbeddingProvider.cs
+│   │   │   └── OnnxEmbeddingProvider.cs       # local, no API needed
+│   │   ├── Export/
+│   │   │   ├── JsonExportService.cs
+│   │   │   └── MarkdownExportService.cs
+│   │   └── DependencyInjection.cs
+│   │
+│   └── MemoryMcp.Server/
+│       ├── Tools/
+│       │   ├── StoreMemoryTool.cs
+│       │   ├── SearchMemoryTool.cs
+│       │   ├── GetMemoryTool.cs
+│       │   ├── UpdateMemoryTool.cs
+│       │   ├── DeleteMemoryTool.cs
+│       │   ├── ListMemoriesTool.cs
+│       │   ├── WipeNamespaceTool.cs
+│       │   ├── LinkMemoriesTool.cs
+│       │   ├── SummarizeConversationTool.cs
+│       │   └── ExportMemoriesTool.cs
+│       ├── Configuration/
+│       │   ├── AppSettings.cs
+│       │   ├── EmbeddingSettings.cs
+│       │   └── StorageSettings.cs
+│       ├── Program.cs
+│       └── appsettings.json
+│
+├── tests/
+│   ├── MemoryMcp.Domain.Tests/          ← xUnit, pure domain logic
+│   ├── MemoryMcp.Application.Tests/     ← xUnit, service / use-case tests
+│   └── MemoryMcp.Infrastructure.Tests/  ← xUnit, EF Core / repository integration tests
+│
+├── MemoryMcp.sln
+└── README.md
+
+
+---
+
+## 5. Key Design Decisions
+
+### Pattern: Repository + Service Layer (no MediatR)
+
+MediatR/CQRS would be overkill here. The service layer in `Application` is thin enough to orchestrate directly.
+
+Tool → calls → Application Service → uses → Repository + VectorStore + EmbeddingProvider
+
+
+### Embedding Strategy
+
+Store the embedding vector alongside each memory entry. On `store`/`update`, compute the embedding and persist it. On `search`, embed the query and compare.
+
+Store flow:  content → EmbeddingProvider → vector → saved in VectorStore + metadata in Repository
+Search flow: query → EmbeddingProvider → vector → VectorStore returns top-K IDs → Repository hydrates full entries
+
+
+### Vector Storage (for < 100K entries)
+
+Brute-force cosine similarity in-memory is perfectly fine at this scale. Load all vectors on startup, keep them in a `ConcurrentDictionary`, and compute similarity in parallel. Fallback to SQLite BLOB storage for persistence.
+
+### Concurrency
+
+- EF Core `DbContext` is scoped per tool call (not singleton).
+- The in-memory vector index is behind a `ReaderWriterLockSlim`.
+- Tool calls are stateless from MCP's perspective.
+
+---
+
+## 6. NuGet Packages
+
+### MemoryMcp.Server
+```xml
+<PackageReference Include="ModelContextProtocol" Version="1.1.0" />
+<PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+<PackageReference Include="Serilog.AspNetCore" Version="9.*" />               <!-- Serilog integration -->
+<PackageReference Include="Serilog.Extensions.Hosting" Version="9.*" />
+<PackageReference Include="Serilog.Sinks.File" Version="6.*" />               <!-- rolling file sink -->
+<PackageReference Include="Serilog.Sinks.Console" Version="6.*" />            <!-- dev console sink -->
+<PackageReference Include="Serilog.Expressions" Version="5.*" />              <!-- structured output templates -->
+```
+
+### MemoryMcp.Application
+```xml
+<PackageReference Include="FluentValidation" Version="11.*" />
+<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+```
+
+### MemoryMcp.Infrastructure
+```xml
+<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
+<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0" />
+<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.*" />           <!-- local embeddings -->
+<PackageReference Include="OpenAI" Version="2.*" />                              <!-- optional: remote embeddings -->
+```
+
+### MemoryMcp.Domain
+```xml
+<!-- No external dependencies. This is intentional. -->
+```
+
+### Test Projects (each)
+```xml
+<PackageReference Include="xunit" Version="2.*" />
+<PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+<PackageReference Include="NSubstitute" Version="5.*" />                     <!-- mocking -->
+<PackageReference Include="FluentAssertions" Version="8.*" />                <!-- assertion helpers -->
+<PackageReference Include="Bogus" Version="35.*" />                          <!-- test data generation -->
+```
+
+---
+
+## 7. Configuration Shape
+
+```json
+{
+  "Storage": {
+    "Provider": "Sqlite",
+    "ConnectionString": "Data Source=memory.db"
+  },
+  "Embedding": {
+    "Provider": "Ollama",
+    "Model": "nomic-embed-text",
+    "BaseUrl": "http://localhost:11434",
+    "Dimensions": 768
+  },
+  "Memory": {
+    "DefaultTtlDays": null,
+    "MaxEntriesPerNamespace": 10000,
+    "StalenessThresholdDays": 90,
+    "EnableContradictionDetection": true,
+    "EnableDeduplication": true
+  },
+  "Logging": {
+    "LogPath": "./logs",
+    "AuditLogFile": "audit-.log",
+    "ErrorLogFile": "errors-.log",
+    "GeneralLogFile": "app-.log",
+    "RollingInterval": "Day",
+    "RetainedFileCountLimit": 30,
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": {
+        "Microsoft": "Warning",
+        "System": "Warning"
+      }
+    }
+  },
+  "Server": {
+    "Transport": "stdio"
+  }
+}
+```
+
+---
+
+## 8. Domain Entity (Core)
+
+A quick sketch so the architecture feels concrete:
+
+```csharp
+public sealed class MemoryEntry
+{
+    public Guid Id { get; private set; }
+    public string Content { get; private set; }
+    public MemoryType Type { get; private set; }
+    public Namespace Namespace { get; private set; }
+    public IReadOnlyList<Tag> Tags => _tags.AsReadOnly();
+    public EmbeddingVector? Embedding { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime UpdatedAt { get; private set; }
+    public DateTime LastAccessedAt { get; private set; }
+    public DateTime? ExpiresAt { get; private set; }
+
+    private readonly List<Tag> _tags = [];
+    private readonly List<MemoryVersion> _versions = [];
+
+    // Domain logic lives here
+    public void UpdateContent(string newContent)
+    {
+        _versions.Add(new MemoryVersion(Content, UpdatedAt));
+        Content = newContent;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public bool IsExpired() => ExpiresAt.HasValue && ExpiresAt.Value < DateTime.UtcNow;
+    public bool IsStale(int thresholdDays) =>
+        LastAccessedAt < DateTime.UtcNow.AddDays(-thresholdDays);
+
+    public void MarkAccessed() => LastAccessedAt = DateTime.UtcNow;
+}
+```
+
+---
+
+## 9. Logging Architecture (Serilog)
+
+### Design Goals
+- **Serilog** is the sole logging framework; it replaces the default `Microsoft.Extensions.Logging` provider via `UseSerilog()`.
+- All log output paths are read from the `Logging` config section — never hardcoded.
+- Three rolling log files are maintained by default:
+  - `app-{Date}.log` — all events at the configured minimum level.
+  - `audit-{Date}.log` — audit-specific events (memory created, updated, deleted, exported, imported). These use a dedicated `AuditLog` sub-logger with a filter expression.
+  - `errors-{Date}.log` — `Warning`+ events for quick error triage.
+- Console sink is active in `Development` environment only (useful during local debugging).
+- Rolling interval (`Day` by default) and retained file count are configurable.
+
+### Audit Logging
+Audit events are written using Serilog's enrichment and filtering:
+```csharp
+// Example: writing an audit event
+Log.ForContext("IsAudit", true)
+   .Information("Memory {MemoryId} created in namespace {Namespace}", id, ns);
+```
+The audit sub-logger filters on `IsAudit == true` and writes only to the audit file sink.
+
+### Wiring (Program.cs sketch)
+```csharp
+builder.Host.UseSerilog((context, services, config) =>
+{
+    var logSettings = context.Configuration.GetSection("Logging");
+    var logPath     = logSettings["LogPath"] ?? "./logs";
+
+    config
+        .ReadFrom.Configuration(context.Configuration)
+        .Enrich.FromLogContext()
+        .WriteTo.File(
+            Path.Combine(logPath, logSettings["GeneralLogFile"] ?? "app-.log"),
+            rollingInterval: RollingInterval.Day,
+            retainedFileCountLimit: logSettings.GetValue<int?>("RetainedFileCountLimit") ?? 30)
+        .WriteTo.Logger(lc => lc
+            .Filter.ByIncludingOnly("IsAudit = true")
+            .WriteTo.File(
+                Path.Combine(logPath, logSettings["AuditLogFile"] ?? "audit-.log"),
+                rollingInterval: RollingInterval.Day))
+        .WriteTo.Logger(lc => lc
+            .Filter.ByIncludingOnly(e => e.Level >= LogEventLevel.Warning)
+            .WriteTo.File(
+                Path.Combine(logPath, logSettings["ErrorLogFile"] ?? "errors-.log"),
+                rollingInterval: RollingInterval.Day));
+});
+```
+
+---
+
+## 10. Testing Strategy (xUnit)
+
+### Framework & Tooling
+| Package | Purpose |
+|---|---|
+| **xUnit** | Test framework (fact + theory based) |
+| **NSubstitute** | Interface mocking (cleaner API than Moq) |
+| **FluentAssertions** | Readable assertion syntax |
+| **Bogus** | Realistic test data generation |
+| **Microsoft.EntityFrameworkCore.InMemory** | In-memory EF Core provider for repository tests |
+
+### Test Project Layout
+```
+tests/
+├── MemoryMcp.Domain.Tests/           ← entity behaviour, value object equality, domain exceptions
+├── MemoryMcp.Application.Tests/      ← service orchestration, validation, deduplication/contradiction logic
+└── MemoryMcp.Infrastructure.Tests/   ← EF Core repository CRUD, vector store, embedding provider integration
+```
+
+### Conventions
+- **Naming**: `MethodName_StateUnderTest_ExpectedBehavior` (e.g. `UpdateContent_WithNewText_CreatesVersionEntry`).
+- **Arrange-Act-Assert** pattern for all tests.
+- **No real I/O** in Domain and Application test projects — mock all infrastructure interfaces.
+- **Infrastructure tests** may use `InMemory` or `Sqlite` (in-memory mode) EF Core provider.
+- **Test data** is generated via `Bogus` fakers for consistency. Shared fakers live in a `Fixtures/` folder per test project.
+- Tests should cover at minimum:
+  - Domain: entity creation, content update with versioning, expiration/staleness checks, tag management.
+  - Application: memory CRUD flows, search orchestration, contradiction detection, deduplication, validation failures.
+  - Infrastructure: repository persistence, query filtering, vector storage round-trip, export/import.
+
+---
+
+## 11. Summary
+
+| Layer | Responsibility | Depends On |
+|---|---|---|
+| **Domain** | Entities, value objects, enums, domain exceptions | Nothing |
+| **Application** | Service interfaces, DTOs, validation, orchestration logic | Domain |
+| **Infrastructure** | EF Core, SQLite, embedding providers, vector store, export | Domain + Application |
+| **Server** | MCP tool definitions, hosting, DI wiring, config | All layers |
+
+The overall philosophy: **keep the domain pure, make infrastructure swappable, and keep tool definitions as thin adapters** that just deserialize input → call a service → return output.
+
+Want me to start implementing any specific layer or tool?
