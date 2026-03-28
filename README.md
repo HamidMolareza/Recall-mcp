@@ -179,9 +179,17 @@ To use a custom base URL such as `https://api.gapgpt.app/v1`, configure both sec
 Use environment variables instead of committing secrets:
 
 ```bash
+export GAPGPT_API_KEY="your-gapgpt-key"
 export MEMORYMCP_AI_API_KEY="your-gapgpt-key"
 export MEMORYMCP_EMBEDDING_API_KEY="your-gapgpt-key"
 ```
+
+Resolution order is:
+
+1. `MEMORYMCP_AI_API_KEY` or `MEMORYMCP_EMBEDDING_API_KEY`
+2. `GAPGPT_API_KEY`
+3. `OPENAI_API_KEY`
+4. `ApiKey` in config
 
 If your provider does not expose embeddings, keep:
 

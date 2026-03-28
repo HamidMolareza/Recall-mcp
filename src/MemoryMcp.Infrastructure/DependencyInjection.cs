@@ -25,11 +25,21 @@ public static class DependencyInjection
         var embeddingModel = embeddingSection["Model"] ?? "nomic-embed-text";
         var embeddingProvider = embeddingSection["Provider"] ?? "Ollama";
         var embeddingBaseUrl = embeddingSection["BaseUrl"] ?? "http://localhost:11434";
-        var embeddingApiKey = ResolveSecret(embeddingSection, "ApiKey", "MEMORYMCP_EMBEDDING_API_KEY");
+        var embeddingApiKey = ResolveSecret(
+            embeddingSection,
+            "ApiKey",
+            "MEMORYMCP_EMBEDDING_API_KEY",
+            "GAPGPT_API_KEY",
+            "OPENAI_API_KEY");
         var aiProvider = aiSection["Provider"] ?? "Simple";
         var aiModel = aiSection["Model"] ?? "gapgpt-qwen-3.5";
         var aiBaseUrl = aiSection["BaseUrl"] ?? "https://api.gapgpt.app/v1";
-        var aiApiKey = ResolveSecret(aiSection, "ApiKey", "MEMORYMCP_AI_API_KEY");
+        var aiApiKey = ResolveSecret(
+            aiSection,
+            "ApiKey",
+            "MEMORYMCP_AI_API_KEY",
+            "GAPGPT_API_KEY",
+            "OPENAI_API_KEY");
 
         services.AddDbContext<MemoryDbContext>(options =>
             options.UseSqlite(connectionString));
@@ -82,10 +92,27 @@ public static class DependencyInjection
         return services;
     }
 
-    private static string ResolveSecret(IConfigurationSection section, string keyName, string environmentVariableName)
+    private static string ResolveSecret(
+        IConfigurationSection section,
+        string keyName,
+        string environmentVariableName,
+        params string[] fallbackEnvironmentVariableNames)
     {
-        return Environment.GetEnvironmentVariable(environmentVariableName)
-            ?? section[keyName]
-            ?? string.Empty;
+        var explicitValue = Environment.GetEnvironmentVariable(environmentVariableName);
+        if (!string.IsNullOrWhiteSpace(explicitValue))
+        {
+            return explicitValue;
+        }
+
+        foreach (var fallbackName in fallbackEnvironmentVariableNames)
+        {
+            var fallbackValue = Environment.GetEnvironmentVariable(fallbackName);
+            if (!string.IsNullOrWhiteSpace(fallbackValue))
+            {
+                return fallbackValue;
+            }
+        }
+
+        return section[keyName] ?? string.Empty;
     }
 }
