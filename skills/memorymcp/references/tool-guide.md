@@ -21,12 +21,16 @@
 - Use `search_memories` first when the user asks what was remembered about a topic, preference, or prior discussion.
 - Use `list_memories` first when the namespace is known and you need controlled inspection instead of semantic ranking.
 - Use `get_memory` only after another tool already gave you a memory ID.
+- Search before storing when there is a real chance the memory already exists under a nearby wording.
 
 ## Writing Strategy
 
 - Prefer `update_memory` over `store_memory` when the new content is clearly a revision of the same fact.
 - Add tags only when they improve later filtering.
 - Link memories when the relationship itself will matter later, not just because two entries mention similar topics.
+- Store standalone facts, not vague references such as "the thing we discussed yesterday."
+- Prefer concise declarative memory content over conversational phrasing.
+- Use summaries when the original text is too large or noisy to keep as-is.
 
 ## Namespace Patterns
 
@@ -44,6 +48,20 @@
 - Report user-actionable warnings when they affect result quality, such as quota exhaustion, authentication problems, or network failures.
 - Do not treat fallback warnings as storage corruption unless the tool explicitly reports an error.
 
+## When To Remember
+
+- Remember user preferences that should shape future answers or implementation choices.
+- Remember project facts that would otherwise need repeated rediscovery.
+- Remember decisions, tradeoffs, and constraints that inform future work.
+- Remember compact summaries of long sessions when future recall matters.
+
+## When Not To Remember
+
+- Do not store throwaway execution noise, temporary scratch notes, or one-turn planning details.
+- Do not store values that already live in source-controlled files unless the memory adds synthesis or cross-cutting context.
+- Do not store secrets by default.
+- Do not create a new memory when a targeted update to an existing one is the right operation.
+
 ## Example Triggers
 
 - "Remember that I prefer SQLite for local tools."
@@ -51,3 +69,5 @@
 - "Summarize this conversation and keep it for later."
 - "Find stale notes in the `project/context` namespace."
 - "Export everything under `user/preferences`."
+- "Update the stored project rule that skills should live in the repo and be linked into Codex."
+- "Search prior memories about deployment constraints before changing config."
