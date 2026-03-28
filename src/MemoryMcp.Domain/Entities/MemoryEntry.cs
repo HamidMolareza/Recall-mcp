@@ -69,6 +69,17 @@ public sealed class MemoryEntry
         UpdatedAt = DateTime.UtcNow;
     }
 
+    public void UpdateType(MemoryType type)
+    {
+        if (Type == type)
+        {
+            return;
+        }
+
+        Type = type;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void SetEmbedding(EmbeddingVector vector)
     {
         ArgumentNullException.ThrowIfNull(vector);
@@ -90,6 +101,21 @@ public sealed class MemoryEntry
     {
         var normalized = label.Trim().ToLowerInvariant();
         _tags.RemoveAll(t => t.Label == normalized);
+    }
+
+    public void ReplaceTags(IEnumerable<string>? tags)
+    {
+        _tags.Clear();
+
+        if (tags is not null)
+        {
+            foreach (var tag in tags)
+            {
+                AddTag(tag);
+            }
+        }
+
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void AddLink(MemoryLink link)

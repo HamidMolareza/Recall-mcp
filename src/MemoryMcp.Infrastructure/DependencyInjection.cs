@@ -3,6 +3,7 @@ using MemoryMcp.Infrastructure.Embeddings;
 using MemoryMcp.Infrastructure.Export;
 using MemoryMcp.Infrastructure.Persistence;
 using MemoryMcp.Infrastructure.Persistence.Repositories;
+using MemoryMcp.Infrastructure.Text;
 using MemoryMcp.Infrastructure.VectorSearch;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -16,6 +17,10 @@ public static class DependencyInjection
     {
         var connectionString = configuration.GetSection("Storage")["ConnectionString"]
                                ?? "Data Source=memory.db";
+        var embeddingDimensions = int.TryParse(configuration.GetSection("Embedding")["Dimensions"], out var parsedDimensions)
+            ? parsedDimensions
+            : 256;
+        var embeddingModel = configuration.GetSection("Embedding")["Model"] ?? "nomic-embed-text";
 
         services.AddDbContext<MemoryDbContext>(options =>
             options.UseSqlite(connectionString));
@@ -23,6 +28,12 @@ public static class DependencyInjection
         services.AddScoped<IMemoryRepository, MemoryRepository>();
         services.AddSingleton<IVectorStore, InMemoryVectorStore>();
         services.AddScoped<IExportService, JsonExportService>();
+        services.AddSingleton(new EmbeddingProviderOptions
+        {
+            Model = embeddingModel,
+            Dimensions = embeddingDimensions
+        });
+        services.AddSingleton<ITextSummarizer, SimpleTextSummarizer>();
 
         services.AddHttpClient<OllamaEmbeddingProvider>(client =>
         {

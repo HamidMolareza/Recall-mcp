@@ -1,9 +1,14 @@
 using MemoryMcp.Application;
+using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Infrastructure;
+using MemoryMcp.Infrastructure.Persistence;
 using MemoryMcp.Server.Configuration;
+using MemoryMcp.Server.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.EntityFrameworkCore;
+using ModelContextProtocol.Server;
 using Serilog;
 using Serilog.Events;
 
@@ -26,10 +31,14 @@ try
 
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
+    builder.Services.AddMcpServer()
+        .WithStdioServerTransport()
+        .WithToolsFromAssembly(typeof(Program).Assembly);
 
     ConfigureSerilog(builder);
 
     var app = builder.Build();
+    await InitializePersistenceAsync(app.Services);
     await app.RunAsync();
 }
 catch (Exception ex)
@@ -72,4 +81,23 @@ static void ConfigureSerilog(HostApplicationBuilder builder)
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: retainedCount));
     });
+}
+
+static async Task InitializePersistenceAsync(IServiceProvider services)
+{
+    await using var scope = services.CreateAsyncScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<MemoryDbContext>();
+    var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
+
+    await dbContext.Database.EnsureCreatedAsync();
+
+    var memoriesWithEmbeddings = await dbContext.Memories
+        .AsNoTracking()
+        .Where(memory => memory.Embedding != null)
+        .ToArrayAsync();
+
+    foreach (var memory in memoriesWithEmbeddings)
+    {
+        await vectorStore.UpsertAsync(memory.Id, memory.Embedding!, memory.Namespace.Value);
+    }
 }

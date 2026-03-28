@@ -22,8 +22,28 @@ public sealed class DeduplicationService
         _logger = logger;
     }
 
-    public Task<IReadOnlyList<Guid>> FindDuplicatesAsync(string content, double threshold = 0.95, CancellationToken ct = default)
+    public async Task<IReadOnlyList<Guid>> FindDuplicatesAsync(string content, double threshold = 0.95, CancellationToken ct = default)
     {
-        throw new NotImplementedException();
+        ArgumentException.ThrowIfNullOrWhiteSpace(content);
+
+        var vector = await _embeddingProvider.GenerateEmbeddingAsync(content, ct);
+        var candidates = await _vectorStore.SearchAsync(vector, 20, ct);
+
+        var duplicates = new List<Guid>();
+        foreach (var candidate in candidates.Where(c => c.Score >= threshold))
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var entry = await _repository.GetByIdAsync(candidate.MemoryId, ct);
+            if (entry is null || entry.IsExpired())
+            {
+                continue;
+            }
+
+            duplicates.Add(candidate.MemoryId);
+        }
+
+        _logger.LogDebug("Duplicate detection found {Count} candidates", duplicates.Count);
+        return duplicates;
     }
 }
