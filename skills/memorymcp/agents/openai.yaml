@@ -1,0 +1,11 @@
+interface:
+  display_name: "Recall Memory MCP"
+  short_description: "Persistent memory workflow for Codex"
+  default_prompt: "Use $memorymcp to store, search, summarize, and maintain durable context through the configured memorymcp MCP server."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "memorymcp"
+      description: "Configured MemoryMcp persistent memory server"
+policy:
+  allow_implicit_invocation: true
