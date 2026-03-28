@@ -22,6 +22,7 @@ public sealed record MemoryQueryFilter
     public DateTime? FromDate { get; init; }
     public DateTime? ToDate { get; init; }
     public string? SearchText { get; init; }
+    public bool IncludeExpired { get; init; }
     public int Page { get; init; } = 1;
     public int PageSize { get; init; } = 20;
 }

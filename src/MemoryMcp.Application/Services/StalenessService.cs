@@ -39,6 +39,7 @@ public sealed class StalenessService
     {
         var entries = await _repository.ListAsync(new MemoryQueryFilter
         {
+            IncludeExpired = true,
             Page = 1,
             PageSize = 10_000
         }, ct);

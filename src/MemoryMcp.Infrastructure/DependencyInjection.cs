@@ -5,6 +5,7 @@ using MemoryMcp.Infrastructure.Persistence;
 using MemoryMcp.Infrastructure.Persistence.Repositories;
 using MemoryMcp.Infrastructure.Text;
 using MemoryMcp.Infrastructure.VectorSearch;
+using MemoryMcp.Domain.ValueObjects;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -43,7 +44,10 @@ public static class DependencyInjection
             "OPENAI_API_KEY");
 
         services.AddDbContext<MemoryDbContext>(options =>
-            options.UseSqlite(connectionString));
+            options
+                .UseSqlite(
+                    connectionString,
+                    sqliteOptions => sqliteOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));
 
         services.AddScoped<IMemoryRepository, MemoryRepository>();
         services.AddSingleton<IVectorStore, InMemoryVectorStore>();
@@ -87,10 +91,12 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(embeddingBaseUrl);
         });
+        services.AddSingleton<DeterministicEmbeddingProvider>();
         services.AddScoped<IEmbeddingProvider>(serviceProvider =>
         {
             var options = serviceProvider.GetRequiredService<EmbeddingProviderOptions>();
             var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("MemoryMcp.Infrastructure.ProviderSelection");
+            var providerKey = options.Provider.Trim().ToLowerInvariant();
 
             logger.LogInformation(
                 "Configuring embedding provider {Provider} with model {Model} and endpoint {BaseUrl}",
@@ -98,11 +104,33 @@ public static class DependencyInjection
                 options.Model,
                 options.BaseUrl);
 
-            return options.Provider.ToLowerInvariant() switch
+            return providerKey switch
             {
                 "gapgpt" or "openaicompatible" or "openai-compatible" when !string.IsNullOrWhiteSpace(options.ApiKey)
-                    => ActivatorUtilities.CreateInstance<OpenAiCompatibleEmbeddingProvider>(serviceProvider),
-                _ => serviceProvider.GetRequiredService<OllamaEmbeddingProvider>()
+                    => LogSelectedEmbeddingProvider(
+                        logger,
+                        ActivatorUtilities.CreateInstance<OpenAiCompatibleEmbeddingProvider>(serviceProvider),
+                        "OpenAI-compatible"),
+                "gapgpt" or "openaicompatible" or "openai-compatible"
+                    => LogSelectedEmbeddingProvider(
+                        logger,
+                        serviceProvider.GetRequiredService<DeterministicEmbeddingProvider>(),
+                        "Deterministic (missing API key)",
+                        LogLevel.Warning,
+                        "Embedding provider {Provider} is configured without an API key; using deterministic local embeddings.",
+                        options.Provider),
+                "ollama"
+                    => LogSelectedEmbeddingProvider(
+                        logger,
+                        serviceProvider.GetRequiredService<OllamaEmbeddingProvider>(),
+                        "Ollama"),
+                _ => LogSelectedEmbeddingProvider(
+                    logger,
+                    serviceProvider.GetRequiredService<DeterministicEmbeddingProvider>(),
+                    "Deterministic (unknown provider)",
+                    LogLevel.Warning,
+                    "Embedding provider {Provider} is not recognized; using deterministic local embeddings.",
+                    options.Provider)
             };
         });
 
@@ -131,5 +159,81 @@ public static class DependencyInjection
         }
 
         return section[keyName] ?? string.Empty;
+    }
+
+    private static IEmbeddingProvider LogSelectedEmbeddingProvider(
+        ILogger logger,
+        IEmbeddingProvider provider,
+        string resolvedProvider,
+        LogLevel logLevel = LogLevel.Information,
+        string? messageTemplate = null,
+        string? configuredProvider = null)
+    {
+        logger.Log(logLevel, messageTemplate ?? "Resolved embedding provider implementation {ResolvedProvider}", configuredProvider ?? resolvedProvider);
+        if (messageTemplate is not null)
+        {
+            logger.LogInformation("Resolved embedding provider implementation {ResolvedProvider}", resolvedProvider);
+        }
+
+        return provider;
+    }
+}
+
+file sealed class DeterministicEmbeddingProvider : IEmbeddingProvider
+{
+    private readonly EmbeddingProviderOptions _options;
+
+    public DeterministicEmbeddingProvider(EmbeddingProviderOptions options)
+    {
+        _options = options;
+    }
+
+    public Task<EmbeddingVector> GenerateEmbeddingAsync(string text, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        return Task.FromResult(CreateDeterministicEmbedding(text));
+    }
+
+    private EmbeddingVector CreateDeterministicEmbedding(string text)
+    {
+        var dimensions = Math.Clamp(_options.Dimensions, 32, 2048);
+        var values = new float[dimensions];
+
+        foreach (var token in Tokenize(text))
+        {
+            var hash = GetDeterministicHash(token);
+            var index = Math.Abs(hash % dimensions);
+            values[index] += 1f;
+        }
+
+        if (values.All(value => value == 0f))
+        {
+            values[0] = 1f;
+        }
+
+        return new EmbeddingVector(values);
+    }
+
+    private static IEnumerable<string> Tokenize(string text)
+    {
+        return text
+            .ToLowerInvariant()
+            .Split([' ', '\t', '\r', '\n', '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '/', '\\', '"', '\''],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(static token => token.Length > 0);
+    }
+
+    private static int GetDeterministicHash(string value)
+    {
+        unchecked
+        {
+            var hash = 23;
+            foreach (var ch in value)
+            {
+                hash = (hash * 31) + ch;
+            }
+
+            return hash;
+        }
     }
 }

@@ -62,8 +62,8 @@ public sealed class OpenAiResponseSummarizer : ITextSummarizer
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "OpenAI-compatible summarization failed");
-            throw;
+            _logger.LogWarning(ex, "OpenAI-compatible summarization failed. Falling back to the simple local summarizer.");
+            return await new SimpleTextSummarizer().SummarizeAsync(text, ct);
         }
     }
 

@@ -71,10 +71,30 @@ public sealed class MemoryRepository : IMemoryRepository
     {
         ArgumentNullException.ThrowIfNull(entry);
 
-        if (_dbContext.Entry(entry).State == EntityState.Detached)
+        var trackedEntityCount = _dbContext.ChangeTracker.Entries().Count();
+        if (trackedEntityCount > 0)
         {
-            _dbContext.Memories.Update(entry);
+            _logger.LogDebug(
+                "Clearing {TrackedEntityCount} tracked entities before merging memory aggregate {MemoryId}",
+                trackedEntityCount,
+                entry.Id);
         }
+
+        _dbContext.ChangeTracker.Clear();
+
+        var trackedEntry = await QueryWithDetails()
+            .FirstOrDefaultAsync(memory => memory.Id == entry.Id, ct);
+
+        if (trackedEntry is null)
+        {
+            throw new InvalidOperationException($"Memory entry {entry.Id} was not found.");
+        }
+
+        _logger.LogDebug("Merging memory aggregate {MemoryId} into a fresh DbContext graph", entry.Id);
+        MergeScalarValues(trackedEntry, entry);
+        SynchronizeTags(trackedEntry, entry);
+        SynchronizeVersions(trackedEntry, entry);
+        SynchronizeLinks(trackedEntry, entry);
 
         await _dbContext.SaveChangesAsync(ct);
     }
@@ -118,6 +138,7 @@ public sealed class MemoryRepository : IMemoryRepository
     private IQueryable<MemoryEntry> QueryWithDetails()
     {
         return _dbContext.Memories
+            .AsSplitQuery()
             .Include(memory => memory.Tags)
             .Include(memory => memory.Versions)
             .Include(memory => memory.OutgoingLinks);
@@ -126,7 +147,10 @@ public sealed class MemoryRepository : IMemoryRepository
     private static IQueryable<MemoryEntry> ApplyDatabaseFilter(IQueryable<MemoryEntry> query, MemoryQueryFilter filter)
     {
         var now = DateTime.UtcNow;
-        query = query.Where(memory => !memory.ExpiresAt.HasValue || memory.ExpiresAt > now);
+        if (!filter.IncludeExpired)
+        {
+            query = query.Where(memory => !memory.ExpiresAt.HasValue || memory.ExpiresAt > now);
+        }
 
         if (filter.Type.HasValue)
         {
@@ -178,5 +202,71 @@ public sealed class MemoryRepository : IMemoryRepository
         }
 
         return filtered;
+    }
+
+    private void MergeScalarValues(MemoryEntry trackedEntry, MemoryEntry entry)
+    {
+        var trackedValues = _dbContext.Entry(trackedEntry);
+        trackedValues.Property(memory => memory.Content).CurrentValue = entry.Content;
+        trackedValues.Property(memory => memory.Type).CurrentValue = entry.Type;
+        trackedValues.Property(memory => memory.Namespace).CurrentValue = entry.Namespace;
+        trackedValues.Property(memory => memory.Embedding).CurrentValue = entry.Embedding;
+        trackedValues.Property(memory => memory.UpdatedAt).CurrentValue = entry.UpdatedAt;
+        trackedValues.Property(memory => memory.LastAccessedAt).CurrentValue = entry.LastAccessedAt;
+        trackedValues.Property(memory => memory.ExpiresAt).CurrentValue = entry.ExpiresAt;
+    }
+
+    private void SynchronizeTags(MemoryEntry trackedEntry, MemoryEntry entry)
+    {
+        var existingTags = trackedEntry.Tags.ToDictionary(tag => tag.Label, StringComparer.Ordinal);
+        var desiredLabels = entry.Tags
+            .Select(tag => tag.Label)
+            .Distinct(StringComparer.Ordinal)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var tagsToRemove = trackedEntry.Tags
+            .Where(tag => !desiredLabels.Contains(tag.Label))
+            .ToArray();
+
+        if (tagsToRemove.Length > 0)
+        {
+            _dbContext.Tags.RemoveRange(tagsToRemove);
+        }
+
+        var tagsToAdd = entry.Tags
+            .Where(tag => !existingTags.ContainsKey(tag.Label))
+            .ToArray();
+
+        foreach (var tag in tagsToAdd)
+        {
+            _dbContext.Entry(tag).Property(nameof(Tag.MemoryEntryId)).CurrentValue = trackedEntry.Id;
+            _dbContext.Tags.Add(tag);
+        }
+    }
+
+    private void SynchronizeVersions(MemoryEntry trackedEntry, MemoryEntry entry)
+    {
+        var existingVersionIds = trackedEntry.Versions
+            .Select(version => version.Id)
+            .ToHashSet();
+
+        foreach (var version in entry.Versions.Where(version => !existingVersionIds.Contains(version.Id)))
+        {
+            _dbContext.Entry(version).Property(nameof(MemoryVersion.MemoryEntryId)).CurrentValue = trackedEntry.Id;
+            _dbContext.Versions.Add(version);
+        }
+    }
+
+    private void SynchronizeLinks(MemoryEntry trackedEntry, MemoryEntry entry)
+    {
+        var existingLinkIds = trackedEntry.OutgoingLinks
+            .Select(link => link.Id)
+            .ToHashSet();
+
+        foreach (var link in entry.OutgoingLinks.Where(link => !existingLinkIds.Contains(link.Id)))
+        {
+            _dbContext.Entry(link).Property(nameof(MemoryLink.SourceId)).CurrentValue = trackedEntry.Id;
+            _dbContext.Links.Add(link);
+        }
     }
 }
