@@ -1,4 +1,5 @@
 using MemoryMcp.Application.Interfaces;
+using MemoryMcp.Infrastructure.Diagnostics;
 using Microsoft.Extensions.Logging;
 using OpenAI;
 using OpenAI.Responses;
@@ -10,13 +11,16 @@ public sealed class OpenAiResponseSummarizer : ITextSummarizer
 {
     private readonly ResponsesClient _client;
     private readonly AiSummarizerOptions _options;
+    private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<OpenAiResponseSummarizer> _logger;
 
     public OpenAiResponseSummarizer(
         AiSummarizerOptions options,
+        IOperationNoticeSink operationNoticeSink,
         ILogger<OpenAiResponseSummarizer> logger)
     {
         _options = options;
+        _operationNoticeSink = operationNoticeSink;
         _logger = logger;
 
         if (string.IsNullOrWhiteSpace(options.ApiKey))
@@ -62,7 +66,14 @@ public sealed class OpenAiResponseSummarizer : ITextSummarizer
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "OpenAI-compatible summarization failed. Falling back to the simple local summarizer.");
+            var warning = ExternalServiceFailureClassifier.CreateFallbackWarning(
+                ex,
+                "summarization request",
+                _options.Provider,
+                _options.Model,
+                "The simple local summarizer was used for this request.");
+            _operationNoticeSink.AddWarning(warning);
+            _logger.LogWarning(ex, "{WarningMessage}", warning.Message);
             return await new SimpleTextSummarizer().SummarizeAsync(text, ct);
         }
     }

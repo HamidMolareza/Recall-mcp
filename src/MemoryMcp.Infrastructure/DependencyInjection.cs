@@ -91,7 +91,7 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(embeddingBaseUrl);
         });
-        services.AddSingleton<DeterministicEmbeddingProvider>();
+        services.AddScoped<DeterministicEmbeddingProvider>();
         services.AddScoped<IEmbeddingProvider>(serviceProvider =>
         {
             var options = serviceProvider.GetRequiredService<EmbeddingProviderOptions>();
@@ -182,15 +182,37 @@ public static class DependencyInjection
 file sealed class DeterministicEmbeddingProvider : IEmbeddingProvider
 {
     private readonly EmbeddingProviderOptions _options;
+    private readonly IOperationNoticeSink _operationNoticeSink;
 
-    public DeterministicEmbeddingProvider(EmbeddingProviderOptions options)
+    public DeterministicEmbeddingProvider(
+        EmbeddingProviderOptions options,
+        IOperationNoticeSink operationNoticeSink)
     {
         _options = options;
+        _operationNoticeSink = operationNoticeSink;
     }
 
     public Task<EmbeddingVector> GenerateEmbeddingAsync(string text, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        var providerKey = _options.Provider.Trim().ToLowerInvariant();
+        if (providerKey is "gapgpt" or "openaicompatible" or "openai-compatible")
+        {
+            _operationNoticeSink.AddWarning(new OperationWarning(
+                "embedding_provider_not_configured",
+                $"The {_options.Provider} embedding provider is not fully configured, so local deterministic embeddings were used.",
+                "Set the provider API key and verify the provider configuration if you need remote embeddings.",
+                $"Provider={_options.Provider}; Model={_options.Model}; BaseUrl={_options.BaseUrl}"));
+        }
+        else if (providerKey != "ollama")
+        {
+            _operationNoticeSink.AddWarning(new OperationWarning(
+                "embedding_provider_unknown",
+                $"The configured embedding provider '{_options.Provider}' is not recognized, so local deterministic embeddings were used.",
+                "Use a supported provider name such as Ollama or GapGpt/OpenAI-compatible.",
+                $"Provider={_options.Provider}; Model={_options.Model}; BaseUrl={_options.BaseUrl}"));
+        }
+
         return Task.FromResult(CreateDeterministicEmbedding(text));
     }
 

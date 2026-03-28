@@ -1,5 +1,6 @@
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Domain.ValueObjects;
+using MemoryMcp.Infrastructure.Diagnostics;
 using Microsoft.Extensions.Logging;
 using OpenAI;
 using OpenAI.Embeddings;
@@ -11,13 +12,16 @@ public sealed class OpenAiCompatibleEmbeddingProvider : IEmbeddingProvider
 {
     private readonly EmbeddingClient _client;
     private readonly EmbeddingProviderOptions _options;
+    private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<OpenAiCompatibleEmbeddingProvider> _logger;
 
     public OpenAiCompatibleEmbeddingProvider(
         EmbeddingProviderOptions options,
+        IOperationNoticeSink operationNoticeSink,
         ILogger<OpenAiCompatibleEmbeddingProvider> logger)
     {
         _options = options;
+        _operationNoticeSink = operationNoticeSink;
         _logger = logger;
 
         if (string.IsNullOrWhiteSpace(options.ApiKey))
@@ -45,9 +49,17 @@ public sealed class OpenAiCompatibleEmbeddingProvider : IEmbeddingProvider
         }
         catch (Exception ex)
         {
+            var warning = ExternalServiceFailureClassifier.CreateFallbackWarning(
+                ex,
+                "embedding request",
+                _options.Provider,
+                _options.Model,
+                "Local deterministic embeddings were used for this request.");
+            _operationNoticeSink.AddWarning(warning);
             _logger.LogWarning(
                 ex,
-                "OpenAI-compatible embedding generation failed. Falling back to deterministic local embeddings.");
+                "{WarningMessage}",
+                warning.Message);
             return CreateDeterministicEmbedding(text);
         }
     }

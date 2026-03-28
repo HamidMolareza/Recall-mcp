@@ -12,15 +12,18 @@ public sealed class ListMemoriesTool
 {
     private readonly MemoryService _memoryService;
     private readonly StalenessService _stalenessService;
+    private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<ListMemoriesTool> _logger;
 
     public ListMemoriesTool(
         MemoryService memoryService,
         StalenessService stalenessService,
+        IOperationNoticeSink operationNoticeSink,
         ILogger<ListMemoriesTool> logger)
     {
         _memoryService = memoryService;
         _stalenessService = stalenessService;
+        _operationNoticeSink = operationNoticeSink;
         _logger = logger;
     }
 
@@ -36,31 +39,37 @@ public sealed class ListMemoriesTool
         int pageSize = 20,
         CancellationToken ct = default)
     {
-        var result = await _memoryService.ListAsync(new MemoryQueryFilter
+        return await ToolExecutionHelper.ExecuteAsync("list_memories", _logger, _operationNoticeSink, async innerCt =>
         {
-            Namespace = memoryNamespace,
-            Type = type,
-            Tags = tags,
-            FromDate = fromDate,
-            ToDate = toDate,
-            SearchText = searchText,
-            Page = page,
-            PageSize = pageSize
-        }, ct);
+            var result = await _memoryService.ListAsync(new MemoryQueryFilter
+            {
+                Namespace = memoryNamespace,
+                Type = type,
+                Tags = tags,
+                FromDate = fromDate,
+                ToDate = toDate,
+                SearchText = searchText,
+                Page = page,
+                PageSize = pageSize
+            }, innerCt);
 
-        _logger.LogInformation("Listed memories page {Page}", result.Page);
-        return result;
+            _logger.LogInformation("Listed memories page {Page}", result.Page);
+            return result;
+        }, ct);
     }
 
     [McpServerTool(Name = "find_stale_memories"), Description("Finds stale memories that have not been accessed recently.")]
     public async Task<object> FindStaleMemoriesAsync(int thresholdDays = 90, CancellationToken ct = default)
     {
-        var stale = await _stalenessService.FindStaleAsync(thresholdDays, ct);
-        return new
+        return await ToolExecutionHelper.ExecuteAsync("find_stale_memories", _logger, _operationNoticeSink, async innerCt =>
         {
-            thresholdDays,
-            count = stale.Count,
-            items = stale
-        };
+            var stale = await _stalenessService.FindStaleAsync(thresholdDays, innerCt);
+            return new
+            {
+                thresholdDays,
+                count = stale.Count,
+                items = stale
+            };
+        }, ct);
     }
 }

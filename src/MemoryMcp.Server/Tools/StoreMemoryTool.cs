@@ -1,4 +1,5 @@
 using MemoryMcp.Application.DTOs;
+using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Application.Services;
 using MemoryMcp.Domain.Enums;
 using ModelContextProtocol.Server;
@@ -13,17 +14,20 @@ public sealed class StoreMemoryTool
     private readonly MemoryService _memoryService;
     private readonly DeduplicationService _deduplicationService;
     private readonly ContradictionDetector _contradictionDetector;
+    private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<StoreMemoryTool> _logger;
 
     public StoreMemoryTool(
         MemoryService memoryService,
         DeduplicationService deduplicationService,
         ContradictionDetector contradictionDetector,
+        IOperationNoticeSink operationNoticeSink,
         ILogger<StoreMemoryTool> logger)
     {
         _memoryService = memoryService;
         _deduplicationService = deduplicationService;
         _contradictionDetector = contradictionDetector;
+        _operationNoticeSink = operationNoticeSink;
         _logger = logger;
     }
 
@@ -37,28 +41,31 @@ public sealed class StoreMemoryTool
         bool rejectDuplicates = false,
         CancellationToken ct = default)
     {
-        var duplicateIds = await _deduplicationService.FindDuplicatesAsync(content, ct: ct);
-        if (rejectDuplicates && duplicateIds.Count > 0)
+        return await ToolExecutionHelper.ExecuteAsync("store_memory", _logger, _operationNoticeSink, async innerCt =>
         {
-            throw new MemoryMcp.Domain.Exceptions.DuplicateMemoryException(duplicateIds[0]);
-        }
+            var duplicateIds = await _deduplicationService.FindDuplicatesAsync(content, ct: innerCt);
+            if (rejectDuplicates && duplicateIds.Count > 0)
+            {
+                throw new MemoryMcp.Domain.Exceptions.DuplicateMemoryException(duplicateIds[0]);
+            }
 
-        var contradictionIds = await _contradictionDetector.DetectContradictionsAsync(content, memoryNamespace, ct);
-        var memory = await _memoryService.StoreAsync(new StoreMemoryRequest
-        {
-            Content = content,
-            Type = type,
-            Namespace = memoryNamespace,
-            Tags = tags,
-            ExpiresAt = expiresAt
+            var contradictionIds = await _contradictionDetector.DetectContradictionsAsync(content, memoryNamespace, innerCt);
+            var memory = await _memoryService.StoreAsync(new StoreMemoryRequest
+            {
+                Content = content,
+                Type = type,
+                Namespace = memoryNamespace,
+                Tags = tags,
+                ExpiresAt = expiresAt
+            }, innerCt);
+
+            _logger.LogInformation("Stored memory {MemoryId}", memory.Id);
+            return new
+            {
+                memory,
+                duplicates = duplicateIds,
+                contradictions = contradictionIds
+            };
         }, ct);
-
-        _logger.LogInformation("Stored memory {MemoryId}", memory.Id);
-        return new
-        {
-            memory,
-            duplicates = duplicateIds,
-            contradictions = contradictionIds
-        };
     }
 }

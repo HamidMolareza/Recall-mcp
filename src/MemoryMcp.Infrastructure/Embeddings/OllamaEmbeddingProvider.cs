@@ -1,5 +1,6 @@
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Domain.ValueObjects;
+using MemoryMcp.Infrastructure.Diagnostics;
 using Microsoft.Extensions.Logging;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -10,15 +11,18 @@ public sealed class OllamaEmbeddingProvider : IEmbeddingProvider
 {
     private readonly HttpClient _httpClient;
     private readonly EmbeddingProviderOptions _options;
+    private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<OllamaEmbeddingProvider> _logger;
 
     public OllamaEmbeddingProvider(
         HttpClient httpClient,
         EmbeddingProviderOptions options,
+        IOperationNoticeSink operationNoticeSink,
         ILogger<OllamaEmbeddingProvider> logger)
     {
         _httpClient = httpClient;
         _options = options;
+        _operationNoticeSink = operationNoticeSink;
         _logger = logger;
     }
 
@@ -51,6 +55,11 @@ public sealed class OllamaEmbeddingProvider : IEmbeddingProvider
             }
             else
             {
+                _operationNoticeSink.AddWarning(new OperationWarning(
+                    "embedding_provider_http_error",
+                    $"The {_options.Provider} embedding request returned HTTP {(int)response.StatusCode}. Local deterministic embeddings were used for this request.",
+                    "Check the provider endpoint, model name, and server health before retrying.",
+                    $"StatusCode={(int)response.StatusCode}; Model={_options.Model}; BaseAddress={_httpClient.BaseAddress}"));
                 _logger.LogWarning(
                     "Ollama embedding request failed with status code {StatusCode} for model {Model}",
                     response.StatusCode,
@@ -59,9 +68,17 @@ public sealed class OllamaEmbeddingProvider : IEmbeddingProvider
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
+            var warning = ExternalServiceFailureClassifier.CreateFallbackWarning(
+                ex,
+                "embedding request",
+                _options.Provider,
+                _options.Model,
+                "Local deterministic embeddings were used for this request.");
+            _operationNoticeSink.AddWarning(warning);
             _logger.LogWarning(
                 ex,
-                "Falling back to deterministic local embeddings. Model={Model}, BaseAddress={BaseAddress}",
+                "{WarningMessage} Model={Model}, BaseAddress={BaseAddress}",
+                warning.Message,
                 _options.Model,
                 _httpClient.BaseAddress);
         }

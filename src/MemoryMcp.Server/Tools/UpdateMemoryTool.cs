@@ -1,4 +1,5 @@
 using MemoryMcp.Application.DTOs;
+using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Application.Services;
 using MemoryMcp.Domain.Enums;
 using ModelContextProtocol.Server;
@@ -13,17 +14,20 @@ public sealed class UpdateMemoryTool
     private readonly MemoryService _memoryService;
     private readonly DeduplicationService _deduplicationService;
     private readonly ContradictionDetector _contradictionDetector;
+    private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<UpdateMemoryTool> _logger;
 
     public UpdateMemoryTool(
         MemoryService memoryService,
         DeduplicationService deduplicationService,
         ContradictionDetector contradictionDetector,
+        IOperationNoticeSink operationNoticeSink,
         ILogger<UpdateMemoryTool> logger)
     {
         _memoryService = memoryService;
         _deduplicationService = deduplicationService;
         _contradictionDetector = contradictionDetector;
+        _operationNoticeSink = operationNoticeSink;
         _logger = logger;
     }
 
@@ -36,31 +40,34 @@ public sealed class UpdateMemoryTool
         DateTime? expiresAt = null,
         CancellationToken ct = default)
     {
-        IReadOnlyList<Guid> duplicateIds = [];
-        IReadOnlyList<Guid> contradictionIds = [];
-
-        if (!string.IsNullOrWhiteSpace(content))
+        return await ToolExecutionHelper.ExecuteAsync("update_memory", _logger, _operationNoticeSink, async innerCt =>
         {
-            duplicateIds = await _deduplicationService.FindDuplicatesAsync(content, ct: ct);
-            var current = await _memoryService.GetByIdAsync(id, ct);
-            contradictionIds = await _contradictionDetector.DetectContradictionsAsync(content, current.Namespace, ct);
-        }
+            IReadOnlyList<Guid> duplicateIds = [];
+            IReadOnlyList<Guid> contradictionIds = [];
 
-        var memory = await _memoryService.UpdateAsync(new UpdateMemoryRequest
-        {
-            Id = id,
-            Content = content,
-            Type = type,
-            Tags = tags,
-            ExpiresAt = expiresAt
+            if (!string.IsNullOrWhiteSpace(content))
+            {
+                duplicateIds = await _deduplicationService.FindDuplicatesAsync(content, ct: innerCt);
+                var current = await _memoryService.GetByIdAsync(id, innerCt);
+                contradictionIds = await _contradictionDetector.DetectContradictionsAsync(content, current.Namespace, innerCt);
+            }
+
+            var memory = await _memoryService.UpdateAsync(new UpdateMemoryRequest
+            {
+                Id = id,
+                Content = content,
+                Type = type,
+                Tags = tags,
+                ExpiresAt = expiresAt
+            }, innerCt);
+
+            _logger.LogInformation("Updated memory {MemoryId}", id);
+            return new
+            {
+                memory,
+                duplicates = duplicateIds.Where(candidateId => candidateId != id).ToArray(),
+                contradictions = contradictionIds.Where(candidateId => candidateId != id).ToArray()
+            };
         }, ct);
-
-        _logger.LogInformation("Updated memory {MemoryId}", id);
-        return new
-        {
-            memory,
-            duplicates = duplicateIds.Where(candidateId => candidateId != id).ToArray(),
-            contradictions = contradictionIds.Where(candidateId => candidateId != id).ToArray()
-        };
     }
 }

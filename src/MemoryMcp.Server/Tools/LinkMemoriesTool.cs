@@ -1,4 +1,5 @@
 using MemoryMcp.Application.DTOs;
+using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Domain.Enums;
 using MemoryMcp.Application.Services;
 using ModelContextProtocol.Server;
@@ -11,11 +12,13 @@ namespace MemoryMcp.Server.Tools;
 public sealed class LinkMemoriesTool
 {
     private readonly MemoryService _memoryService;
+    private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<LinkMemoriesTool> _logger;
 
-    public LinkMemoriesTool(MemoryService memoryService, ILogger<LinkMemoriesTool> logger)
+    public LinkMemoriesTool(MemoryService memoryService, IOperationNoticeSink operationNoticeSink, ILogger<LinkMemoriesTool> logger)
     {
         _memoryService = memoryService;
+        _operationNoticeSink = operationNoticeSink;
         _logger = logger;
     }
 
@@ -27,15 +30,18 @@ public sealed class LinkMemoriesTool
         string? label = null,
         CancellationToken ct = default)
     {
-        await _memoryService.LinkAsync(new LinkMemoriesRequest
+        return await ToolExecutionHelper.ExecuteAsync("link_memories", _logger, _operationNoticeSink, async innerCt =>
         {
-            SourceId = sourceId,
-            TargetId = targetId,
-            Relation = relation,
-            Label = label
-        }, ct);
+            await _memoryService.LinkAsync(new LinkMemoriesRequest
+            {
+                SourceId = sourceId,
+                TargetId = targetId,
+                Relation = relation,
+                Label = label
+            }, innerCt);
 
-        _logger.LogInformation("Linked memory {SourceId} to {TargetId}", sourceId, targetId);
-        return new { linked = true, sourceId, targetId, relation, label };
+            _logger.LogInformation("Linked memory {SourceId} to {TargetId}", sourceId, targetId);
+            return new { linked = true, sourceId, targetId, relation, label };
+        }, ct);
     }
 }

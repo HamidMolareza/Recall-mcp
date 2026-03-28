@@ -15,17 +15,20 @@ public sealed class ExportMemoriesTool
     private readonly IExportService _exportService;
     private readonly IMemoryRepository _repository;
     private readonly IVectorStore _vectorStore;
+    private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<ExportMemoriesTool> _logger;
 
     public ExportMemoriesTool(
         IExportService exportService,
         IMemoryRepository repository,
         IVectorStore vectorStore,
+        IOperationNoticeSink operationNoticeSink,
         ILogger<ExportMemoriesTool> logger)
     {
         _exportService = exportService;
         _repository = repository;
         _vectorStore = vectorStore;
+        _operationNoticeSink = operationNoticeSink;
         _logger = logger;
     }
 
@@ -37,65 +40,71 @@ public sealed class ExportMemoriesTool
         int maxItems = 1000,
         CancellationToken ct = default)
     {
-        var entries = await _repository.ListAsync(new MemoryQueryFilter
+        return await ToolExecutionHelper.ExecuteAsync("export_memories", _logger, _operationNoticeSink, async innerCt =>
         {
-            Namespace = memoryNamespace,
-            SearchText = query,
-            Page = 1,
-            PageSize = Math.Clamp(maxItems, 1, 5000)
+            var entries = await _repository.ListAsync(new MemoryQueryFilter
+            {
+                Namespace = memoryNamespace,
+                SearchText = query,
+                Page = 1,
+                PageSize = Math.Clamp(maxItems, 1, 5000)
+            }, innerCt);
+
+            var payload = string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase)
+                ? await _exportService.ExportToMarkdownAsync(entries, innerCt)
+                : await _exportService.ExportToJsonAsync(entries, innerCt);
+
+            _logger.LogInformation("Exported {Count} memories as {Format}", entries.Count, format);
+            return new
+            {
+                format = format.ToLowerInvariant(),
+                count = entries.Count,
+                content = payload
+            };
         }, ct);
-
-        var payload = string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase)
-            ? await _exportService.ExportToMarkdownAsync(entries, ct)
-            : await _exportService.ExportToJsonAsync(entries, ct);
-
-        _logger.LogInformation("Exported {Count} memories as {Format}", entries.Count, format);
-        return new
-        {
-            format = format.ToLowerInvariant(),
-            count = entries.Count,
-            content = payload
-        };
     }
 
     [McpServerTool(Name = "import_memories"), Description("Imports memories from exported JSON.")]
     public async Task<object> ImportMemoriesAsync(string json, bool skipExisting = true, CancellationToken ct = default)
     {
-        var entries = await _exportService.ImportFromJsonAsync(json, ct);
-        var imported = new List<Guid>();
-        var skipped = new List<Guid>();
-
-        foreach (var entry in entries)
+        return await ToolExecutionHelper.ExecuteAsync("import_memories", _logger, _operationNoticeSink, async innerCt =>
         {
-            ct.ThrowIfCancellationRequested();
+            var entries = await _exportService.ImportFromJsonAsync(json, innerCt);
+            var imported = new List<Guid>();
+            var skipped = new List<Guid>();
 
-            var existing = await _repository.GetByIdAsync(entry.Id, ct);
-            if (existing is not null)
+            foreach (var entry in entries)
             {
-                if (skipExisting)
+                innerCt.ThrowIfCancellationRequested();
+
+                var existing = await _repository.GetByIdAsync(entry.Id, innerCt);
+                if (existing is not null)
                 {
-                    skipped.Add(entry.Id);
-                    continue;
+                    if (skipExisting)
+                    {
+                        skipped.Add(entry.Id);
+                        continue;
+                    }
+
+                    await _repository.DeleteAsync(entry.Id, innerCt);
+                    await _vectorStore.DeleteAsync(entry.Id, innerCt);
                 }
 
-                await _repository.DeleteAsync(entry.Id, ct);
-                await _vectorStore.DeleteAsync(entry.Id, ct);
+                await _repository.AddAsync(entry, innerCt);
+                if (entry.Embedding is not null)
+                {
+                    await _vectorStore.UpsertAsync(entry.Id, entry.Embedding, entry.Namespace.Value, innerCt);
+                }
+
+                imported.Add(entry.Id);
             }
 
-            await _repository.AddAsync(entry, ct);
-            if (entry.Embedding is not null)
+            _logger.LogInformation("Imported {ImportedCount} memories", imported.Count);
+            return new
             {
-                await _vectorStore.UpsertAsync(entry.Id, entry.Embedding, entry.Namespace.Value, ct);
-            }
-
-            imported.Add(entry.Id);
-        }
-
-        _logger.LogInformation("Imported {ImportedCount} memories", imported.Count);
-        return new
-        {
-            imported,
-            skipped
-        };
+                imported,
+                skipped
+            };
+        }, ct);
     }
 }

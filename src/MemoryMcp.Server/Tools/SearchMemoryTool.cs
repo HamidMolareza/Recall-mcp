@@ -1,4 +1,5 @@
 using MemoryMcp.Application.DTOs;
+using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Application.Services;
 using MemoryMcp.Domain.Enums;
 using ModelContextProtocol.Server;
@@ -11,11 +12,13 @@ namespace MemoryMcp.Server.Tools;
 public sealed class SearchMemoryTool
 {
     private readonly SearchService _searchService;
+    private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<SearchMemoryTool> _logger;
 
-    public SearchMemoryTool(SearchService searchService, ILogger<SearchMemoryTool> logger)
+    public SearchMemoryTool(SearchService searchService, IOperationNoticeSink operationNoticeSink, ILogger<SearchMemoryTool> logger)
     {
         _searchService = searchService;
+        _operationNoticeSink = operationNoticeSink;
         _logger = logger;
     }
 
@@ -31,34 +34,37 @@ public sealed class SearchMemoryTool
         int topK = 10,
         CancellationToken ct = default)
     {
-        if (semanticSearch)
+        return await ToolExecutionHelper.ExecuteAsync("search_memories", _logger, _operationNoticeSink, async innerCt =>
         {
-            var semanticResults = await _searchService.SemanticSearchAsync(new SearchMemoryRequest
+            if (semanticSearch)
             {
-                Query = query,
-                SemanticSearch = true,
-                Namespace = memoryNamespace,
-                Type = type,
-                Tags = tags,
-                FromDate = fromDate,
-                ToDate = toDate,
-                TopK = topK
-            }, ct);
+                var semanticResults = await _searchService.SemanticSearchAsync(new SearchMemoryRequest
+                {
+                    Query = query,
+                    SemanticSearch = true,
+                    Namespace = memoryNamespace,
+                    Type = type,
+                    Tags = tags,
+                    FromDate = fromDate,
+                    ToDate = toDate,
+                    TopK = topK
+                }, innerCt);
 
+                return new
+                {
+                    mode = "semantic",
+                    count = semanticResults.Count,
+                    items = semanticResults
+                };
+            }
+
+            var fullTextResults = await _searchService.FullTextSearchAsync(query, topK, innerCt);
             return new
             {
-                mode = "semantic",
-                count = semanticResults.Count,
-                items = semanticResults
+                mode = "full-text",
+                count = fullTextResults.Count,
+                items = fullTextResults
             };
-        }
-
-        var fullTextResults = await _searchService.FullTextSearchAsync(query, topK, ct);
-        return new
-        {
-            mode = "full-text",
-            count = fullTextResults.Count,
-            items = fullTextResults
-        };
+        }, ct);
     }
 }

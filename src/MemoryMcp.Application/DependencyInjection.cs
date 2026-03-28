@@ -1,4 +1,5 @@
 using FluentValidation;
+using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Application.Services;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -8,6 +9,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
+        services.AddScoped<IOperationNoticeSink, OperationNoticeSink>();
         services.AddScoped<MemoryService>();
         services.AddScoped<SearchService>();
         services.AddScoped<ContradictionDetector>();
