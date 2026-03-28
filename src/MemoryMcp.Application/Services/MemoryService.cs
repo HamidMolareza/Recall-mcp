@@ -30,6 +30,13 @@ public sealed class MemoryService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        _logger.LogDebug(
+            "StoreAsync called for namespace={Namespace}, type={Type}, tags={TagCount}, expiresAt={ExpiresAt}",
+            request.Namespace,
+            request.Type,
+            request.Tags?.Count ?? 0,
+            request.ExpiresAt);
+
         var entry = MemoryEntry.Create(
             request.Content,
             request.Type,
@@ -117,6 +124,14 @@ public sealed class MemoryService
     {
         ArgumentNullException.ThrowIfNull(filter);
 
+        _logger.LogDebug(
+            "ListAsync called for namespace={Namespace}, type={Type}, searchText={SearchText}, page={Page}, pageSize={PageSize}",
+            filter.Namespace,
+            filter.Type,
+            filter.SearchText,
+            filter.Page,
+            filter.PageSize);
+
         var normalizedFilter = filter with
         {
             Page = Math.Max(filter.Page, 1),
@@ -125,6 +140,11 @@ public sealed class MemoryService
 
         var items = await _repository.ListAsync(normalizedFilter, ct);
         var totalCount = await _repository.CountAsync(normalizedFilter, ct);
+
+        _logger.LogDebug(
+            "ListAsync completed with {ItemCount} items and totalCount={TotalCount}",
+            items.Count,
+            totalCount);
 
         return new PaginatedList<MemoryResponse>
         {

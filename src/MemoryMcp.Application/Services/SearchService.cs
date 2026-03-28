@@ -27,6 +27,13 @@ public sealed class SearchService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        _logger.LogDebug(
+            "SemanticSearchAsync called for queryLength={QueryLength}, namespace={Namespace}, type={Type}, topK={TopK}",
+            request.Query?.Length ?? 0,
+            request.Namespace,
+            request.Type,
+            request.TopK);
+
         if (string.IsNullOrWhiteSpace(request.Query))
         {
             return [];

@@ -8,6 +8,7 @@ using MemoryMcp.Infrastructure.VectorSearch;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace MemoryMcp.Infrastructure;
 
@@ -66,6 +67,14 @@ public static class DependencyInjection
         services.AddSingleton<ITextSummarizer>(serviceProvider =>
         {
             var options = serviceProvider.GetRequiredService<AiSummarizerOptions>();
+            var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("MemoryMcp.Infrastructure.ProviderSelection");
+
+            logger.LogInformation(
+                "Configuring summarizer provider {Provider} with model {Model} and endpoint {BaseUrl}",
+                options.Provider,
+                options.Model,
+                options.BaseUrl);
+
             return options.Provider.ToLowerInvariant() switch
             {
                 "gapgpt" or "openaicompatible" or "openai-compatible" when !string.IsNullOrWhiteSpace(options.ApiKey)
@@ -81,11 +90,19 @@ public static class DependencyInjection
         services.AddScoped<IEmbeddingProvider>(serviceProvider =>
         {
             var options = serviceProvider.GetRequiredService<EmbeddingProviderOptions>();
+            var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("MemoryMcp.Infrastructure.ProviderSelection");
+
+            logger.LogInformation(
+                "Configuring embedding provider {Provider} with model {Model} and endpoint {BaseUrl}",
+                options.Provider,
+                options.Model,
+                options.BaseUrl);
+
             return options.Provider.ToLowerInvariant() switch
             {
                 "gapgpt" or "openaicompatible" or "openai-compatible" when !string.IsNullOrWhiteSpace(options.ApiKey)
                     => ActivatorUtilities.CreateInstance<OpenAiCompatibleEmbeddingProvider>(serviceProvider),
-                _ => ActivatorUtilities.CreateInstance<OllamaEmbeddingProvider>(serviceProvider)
+                _ => serviceProvider.GetRequiredService<OllamaEmbeddingProvider>()
             };
         });
 

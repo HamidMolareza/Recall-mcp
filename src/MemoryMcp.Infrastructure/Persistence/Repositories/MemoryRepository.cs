@@ -26,25 +26,37 @@ public sealed class MemoryRepository : IMemoryRepository
     {
         ArgumentNullException.ThrowIfNull(filter);
 
-        var query = ApplyFilter(QueryWithDetails().AsNoTracking(), filter)
-            .OrderByDescending(memory => memory.UpdatedAt)
-            .ThenByDescending(memory => memory.CreatedAt);
-
         var page = Math.Max(filter.Page, 1);
         var pageSize = Math.Clamp(filter.PageSize, 1, 500);
+        var candidates = await ApplyDatabaseFilter(QueryWithDetails().AsNoTracking(), filter)
+            .OrderByDescending(memory => memory.UpdatedAt)
+            .ThenByDescending(memory => memory.CreatedAt)
+            .ToArrayAsync(ct);
 
-        return await query
+        var filtered = ApplyInMemoryFilter(candidates, filter)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToArrayAsync(ct);
+            .ToArray();
+
+        _logger.LogDebug(
+            "ListAsync returned {Count} memories for namespace={Namespace}, type={Type}, page={Page}, pageSize={PageSize}",
+            filtered.Length,
+            filter.Namespace,
+            filter.Type,
+            page,
+            pageSize);
+
+        return filtered;
     }
 
-    public Task<int> CountAsync(MemoryQueryFilter filter, CancellationToken ct = default)
+    public async Task<int> CountAsync(MemoryQueryFilter filter, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(filter);
 
-        return ApplyFilter(_dbContext.Memories.AsNoTracking(), filter)
-            .CountAsync(ct);
+        var candidates = await ApplyDatabaseFilter(QueryWithDetails().AsNoTracking(), filter)
+            .ToArrayAsync(ct);
+
+        return ApplyInMemoryFilter(candidates, filter).Count();
     }
 
     public async Task AddAsync(MemoryEntry entry, CancellationToken ct = default)
@@ -85,10 +97,14 @@ public sealed class MemoryRepository : IMemoryRepository
 
         var normalized = ns.Trim().ToLowerInvariant();
         var entries = await _dbContext.Memories
-            .Where(memory =>
-                EF.Property<string>(memory, nameof(MemoryEntry.Namespace)) == normalized ||
-                EF.Property<string>(memory, nameof(MemoryEntry.Namespace)).StartsWith($"{normalized}/"))
+            .Where(memory => !memory.ExpiresAt.HasValue || memory.ExpiresAt > DateTime.UtcNow)
             .ToArrayAsync(ct);
+
+        entries = entries
+            .Where(memory =>
+                memory.Namespace.Value == normalized ||
+                memory.Namespace.Value.StartsWith($"{normalized}/", StringComparison.Ordinal))
+            .ToArray();
 
         if (entries.Length == 0)
         {
@@ -107,18 +123,10 @@ public sealed class MemoryRepository : IMemoryRepository
             .Include(memory => memory.OutgoingLinks);
     }
 
-    private static IQueryable<MemoryEntry> ApplyFilter(IQueryable<MemoryEntry> query, MemoryQueryFilter filter)
+    private static IQueryable<MemoryEntry> ApplyDatabaseFilter(IQueryable<MemoryEntry> query, MemoryQueryFilter filter)
     {
         var now = DateTime.UtcNow;
         query = query.Where(memory => !memory.ExpiresAt.HasValue || memory.ExpiresAt > now);
-
-        if (!string.IsNullOrWhiteSpace(filter.Namespace))
-        {
-            var normalized = filter.Namespace.Trim().ToLowerInvariant();
-            query = query.Where(memory =>
-                EF.Property<string>(memory, nameof(MemoryEntry.Namespace)) == normalized ||
-                EF.Property<string>(memory, nameof(MemoryEntry.Namespace)).StartsWith($"{normalized}/"));
-        }
 
         if (filter.Type.HasValue)
         {
@@ -155,5 +163,20 @@ public sealed class MemoryRepository : IMemoryRepository
         }
 
         return query;
+    }
+
+    private static IEnumerable<MemoryEntry> ApplyInMemoryFilter(IEnumerable<MemoryEntry> entries, MemoryQueryFilter filter)
+    {
+        var filtered = entries;
+
+        if (!string.IsNullOrWhiteSpace(filter.Namespace))
+        {
+            var normalized = filter.Namespace.Trim().ToLowerInvariant();
+            filtered = filtered.Where(memory =>
+                memory.Namespace.Value == normalized ||
+                memory.Namespace.Value.StartsWith($"{normalized}/", StringComparison.Ordinal));
+        }
+
+        return filtered;
     }
 }

@@ -28,6 +28,11 @@ public sealed class OllamaEmbeddingProvider : IEmbeddingProvider
 
         try
         {
+            _logger.LogDebug(
+                "Generating Ollama embedding using model {Model} and base address {BaseAddress}",
+                _options.Model,
+                _httpClient.BaseAddress);
+
             var embedRequest = new
             {
                 model = _options.Model,
@@ -46,12 +51,19 @@ public sealed class OllamaEmbeddingProvider : IEmbeddingProvider
             }
             else
             {
-                _logger.LogWarning("Ollama embedding request failed with status code {StatusCode}", response.StatusCode);
+                _logger.LogWarning(
+                    "Ollama embedding request failed with status code {StatusCode} for model {Model}",
+                    response.StatusCode,
+                    _options.Model);
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
-            _logger.LogWarning(ex, "Falling back to deterministic local embeddings");
+            _logger.LogWarning(
+                ex,
+                "Falling back to deterministic local embeddings. Model={Model}, BaseAddress={BaseAddress}",
+                _options.Model,
+                _httpClient.BaseAddress);
         }
 
         return CreateDeterministicEmbedding(text);

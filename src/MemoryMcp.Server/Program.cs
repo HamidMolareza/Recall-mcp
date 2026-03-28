@@ -14,7 +14,6 @@ using Serilog.Events;
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
-    .WriteTo.Console()
     .CreateBootstrapLogger();
 
 try
@@ -22,6 +21,7 @@ try
     Log.Information("Starting MemoryMcp server");
 
     var builder = Host.CreateApplicationBuilder(args);
+    EnsureBaseFolders(builder.Configuration);
 
     builder.Services.Configure<StorageSettings>(builder.Configuration.GetSection(StorageSettings.SectionName));
     builder.Services.Configure<EmbeddingSettings>(builder.Configuration.GetSection(EmbeddingSettings.SectionName));
@@ -39,6 +39,7 @@ try
     ConfigureSerilog(builder);
 
     var app = builder.Build();
+    LogStartupConfiguration(builder.Configuration);
     await InitializePersistenceAsync(app.Services);
     await app.RunAsync();
 }
@@ -90,6 +91,8 @@ static async Task InitializePersistenceAsync(IServiceProvider services)
     var dbContext = scope.ServiceProvider.GetRequiredService<MemoryDbContext>();
     var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
 
+    Log.Debug("Ensuring database is created at startup");
+
     await dbContext.Database.EnsureCreatedAsync();
 
     var memoriesWithEmbeddings = await dbContext.Memories
@@ -97,8 +100,75 @@ static async Task InitializePersistenceAsync(IServiceProvider services)
         .Where(memory => memory.Embedding != null)
         .ToArrayAsync();
 
+    Log.Information("Loaded {Count} persisted embeddings into the in-memory vector index", memoriesWithEmbeddings.Length);
+
     foreach (var memory in memoriesWithEmbeddings)
     {
         await vectorStore.UpsertAsync(memory.Id, memory.Embedding!, memory.Namespace.Value);
     }
+}
+
+static void EnsureBaseFolders(IConfiguration configuration)
+{
+    var logPath = configuration.GetSection(LoggingSettings.SectionName)["LogPath"];
+    if (!string.IsNullOrWhiteSpace(logPath))
+    {
+        var fullLogPath = Path.GetFullPath(logPath, Directory.GetCurrentDirectory());
+        Directory.CreateDirectory(fullLogPath);
+    }
+
+    var connectionString = configuration.GetSection(StorageSettings.SectionName)["ConnectionString"];
+    var databasePath = TryExtractSqliteFilePath(connectionString);
+    if (!string.IsNullOrWhiteSpace(databasePath))
+    {
+        var fullDatabasePath = Path.GetFullPath(databasePath, Directory.GetCurrentDirectory());
+        var databaseDirectory = Path.GetDirectoryName(fullDatabasePath);
+
+        if (!string.IsNullOrWhiteSpace(databaseDirectory))
+        {
+            Directory.CreateDirectory(databaseDirectory);
+        }
+    }
+}
+
+static void LogStartupConfiguration(IConfiguration configuration)
+{
+    Log.Information(
+        "Startup configuration: cwd={CurrentDirectory}, storage={ConnectionString}, logPath={LogPath}, embeddingProvider={EmbeddingProvider}, embeddingBaseUrl={EmbeddingBaseUrl}, aiProvider={AiProvider}, aiBaseUrl={AiBaseUrl}",
+        Directory.GetCurrentDirectory(),
+        configuration.GetSection(StorageSettings.SectionName)["ConnectionString"],
+        configuration.GetSection(LoggingSettings.SectionName)["LogPath"],
+        configuration.GetSection(EmbeddingSettings.SectionName)["Provider"],
+        configuration.GetSection(EmbeddingSettings.SectionName)["BaseUrl"],
+        configuration.GetSection(AiSettings.SectionName)["Provider"],
+        configuration.GetSection(AiSettings.SectionName)["BaseUrl"]);
+}
+
+static string? TryExtractSqliteFilePath(string? connectionString)
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        return null;
+    }
+
+    foreach (var segment in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        var separatorIndex = segment.IndexOf('=');
+        if (separatorIndex <= 0)
+        {
+            continue;
+        }
+
+        var key = segment[..separatorIndex].Trim();
+        var value = segment[(separatorIndex + 1)..].Trim().Trim('"');
+        if ((key.Equals("Data Source", StringComparison.OrdinalIgnoreCase) ||
+             key.Equals("DataSource", StringComparison.OrdinalIgnoreCase)) &&
+            !string.IsNullOrWhiteSpace(value) &&
+            !value.Equals(":memory:", StringComparison.OrdinalIgnoreCase))
+        {
+            return value;
+        }
+    }
+
+    return null;
 }
