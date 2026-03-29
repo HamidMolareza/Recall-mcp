@@ -1,7 +1,6 @@
 using MemoryMcp.Application.DTOs;
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Application.Services;
-using MemoryMcp.Domain.Enums;
 using ModelContextProtocol.Server;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel;
@@ -27,7 +26,8 @@ public sealed class SearchMemoryTool
         string query,
         bool semanticSearch = true,
         string? memoryNamespace = null,
-        MemoryType? type = null,
+        [Description("Optional memory type filter. " + MemoryTypeArgumentParser.AllowedValuesDescription)]
+        string? type = null,
         string[]? tags = null,
         DateTime? fromDate = null,
         DateTime? toDate = null,
@@ -36,6 +36,7 @@ public sealed class SearchMemoryTool
     {
         return await ToolExecutionHelper.ExecuteAsync("search_memories", _logger, _operationNoticeSink, async innerCt =>
         {
+            var parsedType = MemoryTypeArgumentParser.ParseOptional(type, nameof(type));
             if (semanticSearch)
             {
                 var semanticResults = await _searchService.SemanticSearchAsync(new SearchMemoryRequest
@@ -43,7 +44,7 @@ public sealed class SearchMemoryTool
                     Query = query,
                     SemanticSearch = true,
                     Namespace = memoryNamespace,
-                    Type = type,
+                    Type = parsedType,
                     Tags = tags,
                     FromDate = fromDate,
                     ToDate = toDate,

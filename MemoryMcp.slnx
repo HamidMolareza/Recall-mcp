@@ -9,5 +9,6 @@
     <Project Path="tests/MemoryMcp.Application.Tests/MemoryMcp.Application.Tests.csproj" />
     <Project Path="tests/MemoryMcp.Domain.Tests/MemoryMcp.Domain.Tests.csproj" />
     <Project Path="tests/MemoryMcp.Infrastructure.Tests/MemoryMcp.Infrastructure.Tests.csproj" />
+    <Project Path="tests/MemoryMcp.Server.Tests/MemoryMcp.Server.Tests.csproj" />
   </Folder>
 </Solution>

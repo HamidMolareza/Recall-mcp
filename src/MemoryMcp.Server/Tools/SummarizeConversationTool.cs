@@ -33,12 +33,26 @@ public sealed class SummarizeConversationTool
         string conversation,
         bool storeSummary = false,
         string? memoryNamespace = null,
-        MemoryType summaryType = MemoryType.Context,
+        [Description("Memory type used when `storeSummary` is true. " + MemoryTypeArgumentParser.AllowedValuesDescription + " Defaults to Context.")]
+        string? summaryType = null,
         string[]? tags = null,
         CancellationToken ct = default)
     {
         return await ToolExecutionHelper.ExecuteAsync("summarize_conversation", _logger, _operationNoticeSink, async innerCt =>
         {
+            MemoryType parsedSummaryType = MemoryType.Context;
+            string? resolvedNamespace = null;
+            if (storeSummary)
+            {
+                if (string.IsNullOrWhiteSpace(memoryNamespace))
+                {
+                    throw new ArgumentException("A namespace is required when storing the generated summary.", nameof(memoryNamespace));
+                }
+
+                resolvedNamespace = memoryNamespace;
+                parsedSummaryType = MemoryTypeArgumentParser.ParseOptionalOrDefault(summaryType, MemoryType.Context, nameof(summaryType));
+            }
+
             var summary = await _summarizer.SummarizeAsync(conversation, innerCt);
 
             if (!storeSummary)
@@ -46,16 +60,11 @@ public sealed class SummarizeConversationTool
                 return new { summary };
             }
 
-            if (string.IsNullOrWhiteSpace(memoryNamespace))
-            {
-                throw new ArgumentException("A namespace is required when storing the generated summary.", nameof(memoryNamespace));
-            }
-
             var memory = await _memoryService.StoreAsync(new StoreMemoryRequest
             {
                 Content = summary,
-                Type = summaryType,
-                Namespace = memoryNamespace,
+                Type = parsedSummaryType,
+                Namespace = resolvedNamespace!,
                 Tags = tags
             }, innerCt);
 

@@ -1,7 +1,6 @@
 using MemoryMcp.Application.DTOs;
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Application.Services;
-using MemoryMcp.Domain.Enums;
 using ModelContextProtocol.Server;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel;
@@ -34,7 +33,8 @@ public sealed class StoreMemoryTool
     [McpServerTool(Name = "store_memory"), Description("Stores a memory entry and reports duplicates or contradictions.")]
     public async Task<object> StoreMemoryAsync(
         string content,
-        MemoryType type,
+        [Description("Memory type for the new entry. " + MemoryTypeArgumentParser.AllowedValuesDescription)]
+        string type,
         string memoryNamespace,
         string[]? tags = null,
         DateTime? expiresAt = null,
@@ -43,6 +43,7 @@ public sealed class StoreMemoryTool
     {
         return await ToolExecutionHelper.ExecuteAsync("store_memory", _logger, _operationNoticeSink, async innerCt =>
         {
+            var parsedType = MemoryTypeArgumentParser.ParseRequired(type, nameof(type));
             var duplicateIds = await _deduplicationService.FindDuplicatesAsync(content, ct: innerCt);
             if (rejectDuplicates && duplicateIds.Count > 0)
             {
@@ -53,7 +54,7 @@ public sealed class StoreMemoryTool
             var memory = await _memoryService.StoreAsync(new StoreMemoryRequest
             {
                 Content = content,
-                Type = type,
+                Type = parsedType,
                 Namespace = memoryNamespace,
                 Tags = tags,
                 ExpiresAt = expiresAt

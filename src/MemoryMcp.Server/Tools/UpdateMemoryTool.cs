@@ -1,7 +1,6 @@
 using MemoryMcp.Application.DTOs;
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Application.Services;
-using MemoryMcp.Domain.Enums;
 using ModelContextProtocol.Server;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel;
@@ -35,13 +34,15 @@ public sealed class UpdateMemoryTool
     public async Task<object> UpdateMemoryAsync(
         Guid id,
         string? content = null,
-        MemoryType? type = null,
+        [Description("Optional replacement memory type. " + MemoryTypeArgumentParser.AllowedValuesDescription)]
+        string? type = null,
         string[]? tags = null,
         DateTime? expiresAt = null,
         CancellationToken ct = default)
     {
         return await ToolExecutionHelper.ExecuteAsync("update_memory", _logger, _operationNoticeSink, async innerCt =>
         {
+            var parsedType = MemoryTypeArgumentParser.ParseOptional(type, nameof(type));
             IReadOnlyList<Guid> duplicateIds = [];
             IReadOnlyList<Guid> contradictionIds = [];
 
@@ -56,7 +57,7 @@ public sealed class UpdateMemoryTool
             {
                 Id = id,
                 Content = content,
-                Type = type,
+                Type = parsedType,
                 Tags = tags,
                 ExpiresAt = expiresAt
             }, innerCt);

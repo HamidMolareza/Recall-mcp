@@ -1,6 +1,5 @@
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Application.Services;
-using MemoryMcp.Domain.Enums;
 using ModelContextProtocol.Server;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel;
@@ -30,7 +29,8 @@ public sealed class ListMemoriesTool
     [McpServerTool(Name = "list_memories"), Description("Lists memories with filtering and pagination.")]
     public async Task<object> ListMemoriesAsync(
         string? memoryNamespace = null,
-        MemoryType? type = null,
+        [Description("Optional memory type filter. " + MemoryTypeArgumentParser.AllowedValuesDescription)]
+        string? type = null,
         string[]? tags = null,
         DateTime? fromDate = null,
         DateTime? toDate = null,
@@ -41,10 +41,11 @@ public sealed class ListMemoriesTool
     {
         return await ToolExecutionHelper.ExecuteAsync("list_memories", _logger, _operationNoticeSink, async innerCt =>
         {
+            var parsedType = MemoryTypeArgumentParser.ParseOptional(type, nameof(type));
             var result = await _memoryService.ListAsync(new MemoryQueryFilter
             {
                 Namespace = memoryNamespace,
-                Type = type,
+                Type = parsedType,
                 Tags = tags,
                 FromDate = fromDate,
                 ToDate = toDate,
