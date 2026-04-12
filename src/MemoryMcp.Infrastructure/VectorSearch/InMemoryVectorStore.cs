@@ -110,6 +110,38 @@ public sealed class InMemoryVectorStore : IVectorStore
         return Task.FromResult<IReadOnlyList<VectorSearchResult>>(results);
     }
 
+    public Task ReplaceAsync(IEnumerable<VectorIndexEntry> entries, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ct.ThrowIfCancellationRequested();
+
+        var snapshot = entries.ToArray();
+
+        _lock.EnterWriteLock();
+        try
+        {
+            _vectors.Clear();
+            _namespaces.Clear();
+
+            foreach (var entry in snapshot)
+            {
+                ct.ThrowIfCancellationRequested();
+                _vectors[entry.MemoryId] = entry.Vector;
+
+                if (!string.IsNullOrWhiteSpace(entry.Namespace))
+                {
+                    _namespaces[entry.MemoryId] = entry.Namespace.Trim().ToLowerInvariant();
+                }
+            }
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
+
+        return Task.CompletedTask;
+    }
+
     public VectorIndexSnapshot GetSnapshot()
     {
         _lock.EnterReadLock();
@@ -132,6 +164,11 @@ public sealed class InMemoryVectorStore : IVectorStore
         }
     }
 }
+
+public sealed record VectorIndexEntry(
+    Guid MemoryId,
+    EmbeddingVector Vector,
+    string? Namespace);
 
 public sealed record VectorIndexSnapshot(
     int EntryCount,

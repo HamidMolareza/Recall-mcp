@@ -45,4 +45,28 @@ public class InMemoryVectorStoreTests
         snapshot.UnscopedEntryCount.Should().Be(1);
         snapshot.NamespaceCounts.Should().ContainKey("work/project-a").WhoseValue.Should().Be(2);
     }
+
+    [Fact]
+    public async Task ReplaceAsync_ReplacesExistingEntriesAtomically()
+    {
+        var logger = Substitute.For<ILogger<InMemoryVectorStore>>();
+        var store = new InMemoryVectorStore(logger);
+        var staleId = Guid.NewGuid();
+        var freshId = Guid.NewGuid();
+
+        await store.UpsertAsync(staleId, new EmbeddingVector([1.0f, 0.0f]), "stale");
+
+        await store.ReplaceAsync(
+        [
+            new VectorIndexEntry(freshId, new EmbeddingVector([0.0f, 1.0f]), "fresh")
+        ]);
+
+        var snapshot = store.GetSnapshot();
+
+        snapshot.EntryCount.Should().Be(1);
+        snapshot.NamespaceCounts.Should().ContainSingle();
+        snapshot.NamespaceCounts.Should().ContainKey("fresh").WhoseValue.Should().Be(1);
+        var results = await store.SearchAsync(new EmbeddingVector([0.0f, 1.0f]), 10);
+        results.Should().ContainSingle(result => result.MemoryId == freshId);
+    }
 }

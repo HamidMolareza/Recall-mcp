@@ -60,6 +60,7 @@ public static class DependencyInjection
         services.AddScoped<IMemoryRepository, MemoryRepository>();
         services.AddSingleton<InMemoryVectorStore>();
         services.AddSingleton<IVectorStore>(serviceProvider => serviceProvider.GetRequiredService<InMemoryVectorStore>());
+        services.AddScoped<VectorIndexMaintenanceService>();
         services.AddScoped<IExportService, JsonExportService>();
         services.AddSingleton<TimeProvider>(TimeProvider.System);
         services.AddSingleton(new EmbeddingProviderOptions

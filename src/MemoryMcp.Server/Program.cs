@@ -3,6 +3,7 @@ using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Infrastructure;
 using MemoryMcp.Infrastructure.Persistence;
 using MemoryMcp.Infrastructure.Runtime;
+using MemoryMcp.Infrastructure.VectorSearch;
 using MemoryMcp.Server.Configuration;
 using MemoryMcp.Server.Tools;
 using Microsoft.Extensions.Configuration;
@@ -89,23 +90,13 @@ static async Task InitializePersistenceAsync(IServiceProvider services)
 {
     await using var scope = services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<MemoryDbContext>();
-    var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
+    var vectorIndexMaintenance = scope.ServiceProvider.GetRequiredService<VectorIndexMaintenanceService>();
 
     Log.Debug("Ensuring database is created at startup");
 
     await dbContext.Database.EnsureCreatedAsync();
-
-    var memoriesWithEmbeddings = await dbContext.Memories
-        .AsNoTracking()
-        .Where(memory => memory.Embedding != null)
-        .ToArrayAsync();
-
-    Log.Information("Loaded {Count} persisted embeddings into the in-memory vector index", memoriesWithEmbeddings.Length);
-
-    foreach (var memory in memoriesWithEmbeddings)
-    {
-        await vectorStore.UpsertAsync(memory.Id, memory.Embedding!, memory.Namespace.Value);
-    }
+    var rebuild = await vectorIndexMaintenance.RebuildAsync();
+    Log.Information("Loaded {Count} persisted embeddings into the in-memory vector index", rebuild.PersistedEmbeddingCount);
 }
 
 static void EnsureBaseFolders(IConfiguration configuration)
