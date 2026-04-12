@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MemoryMcp.Application\MemoryMcp.Application.csproj" />
+    <ProjectReference Include="..\..\src\MemoryMcp.Infrastructure\MemoryMcp.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\MemoryMcp.Server\MemoryMcp.Server.csproj" />
   </ItemGroup>
 
