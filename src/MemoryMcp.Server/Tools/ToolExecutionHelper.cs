@@ -1,3 +1,4 @@
+using MemoryMcp.Application.Diagnostics;
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
@@ -37,7 +38,6 @@ public static class ToolExecutionHelper
     {
         var actual = Unwrap(exception);
         var details = actual.Message;
-        var normalized = details.ToLowerInvariant();
 
         return actual switch
         {
@@ -90,55 +90,21 @@ public static class ToolExecutionHelper
                     "The request was canceled before it completed.",
                     "Retry the request if you still need the result.",
                     details)),
-            InvalidOperationException when normalized.Contains("api key is required", StringComparison.Ordinal) => new ToolErrorDefinition(
+            InvalidOperationException when details.Contains("api key is required", StringComparison.OrdinalIgnoreCase) => new ToolErrorDefinition(
                 LogLevel.Warning,
                 new ToolError(
                     "provider_configuration_error",
                     "The configured AI provider is missing an API key.",
                     "Set the provider API key environment variable or appsettings value, then retry.",
                     details)),
-            InvalidOperationException when normalized.Contains("returned no text", StringComparison.Ordinal) => new ToolErrorDefinition(
+            InvalidOperationException when details.Contains("returned no text", StringComparison.OrdinalIgnoreCase) => new ToolErrorDefinition(
                 LogLevel.Warning,
                 new ToolError(
                     "ai_empty_response",
                     "The AI provider returned an empty response.",
                     "Retry the request or switch to another model/provider if the problem continues.",
                     details)),
-            _ when ContainsAny(normalized, "429", "quota", "rate limit", "too many requests", "insufficient_quota", "token limit", "tokens per") => new ToolErrorDefinition(
-                LogLevel.Warning,
-                new ToolError(
-                    "ai_quota_or_rate_limit",
-                    "The AI or embedding provider rejected the request because a quota, token, or rate limit was reached.",
-                    "Check API quota, billing, or model limits, then retry after the limit window resets.",
-                    details)),
-            _ when ContainsAny(normalized, "401", "403", "unauthorized", "forbidden", "invalid api key", "authentication") => new ToolErrorDefinition(
-                LogLevel.Warning,
-                new ToolError(
-                    "ai_authentication_failed",
-                    "The AI or embedding provider rejected the request credentials.",
-                    "Verify the API key, account permissions, and configured base URL before retrying.",
-                    details)),
-            _ when ContainsAny(normalized, "timeout", "timed out", "deadline exceeded") => new ToolErrorDefinition(
-                LogLevel.Warning,
-                new ToolError(
-                    "provider_timeout",
-                    "The external provider did not respond before the timeout expired.",
-                    "Retry the request or use another provider/model if timeouts continue.",
-                    details)),
-            _ when ContainsAny(normalized, "permission denied", "connection refused", "host not found", "no such host", "name or service not known", "socketexception") => new ToolErrorDefinition(
-                LogLevel.Warning,
-                new ToolError(
-                    "provider_connectivity_failed",
-                    "The server could not reach the configured AI or embedding provider.",
-                    "Check network access, DNS, firewall rules, and the configured provider endpoint before retrying.",
-                    details)),
-            _ => new ToolErrorDefinition(
-                LogLevel.Error,
-                new ToolError(
-                    "internal_error",
-                    "The server could not complete this request.",
-                    "Check the server logs for details, correct the underlying issue, and retry.",
-                    details))
+            _ => MapExternalFailure(actual)
         };
     }
 
@@ -168,9 +134,62 @@ public static class ToolExecutionHelper
         return index > 0 ? message[..index] : message;
     }
 
-    private static bool ContainsAny(string value, params string[] candidates)
+    private static ToolErrorDefinition MapExternalFailure(Exception exception)
     {
-        return candidates.Any(candidate => value.Contains(candidate, StringComparison.Ordinal));
+        var analysis = ExternalServiceFailureAnalysis.Analyze(exception);
+
+        return analysis.Kind switch
+        {
+            ExternalServiceFailureKind.ModelUnavailable => new ToolErrorDefinition(
+                LogLevel.Warning,
+                new ToolError(
+                    "ai_model_unavailable",
+                    "The configured AI or embedding model is not available from the provider.",
+                    "Verify the model name and account access, or switch to a supported model before retrying.",
+                    analysis.Details)),
+            ExternalServiceFailureKind.QuotaOrRateLimit => new ToolErrorDefinition(
+                LogLevel.Warning,
+                new ToolError(
+                    "ai_quota_or_rate_limit",
+                    "The AI or embedding provider rejected the request because a quota, token, or rate limit was reached.",
+                    "Check API quota, billing, or model limits, then retry after the limit window resets.",
+                    analysis.Details)),
+            ExternalServiceFailureKind.AuthenticationFailed => new ToolErrorDefinition(
+                LogLevel.Warning,
+                new ToolError(
+                    "ai_authentication_failed",
+                    "The AI or embedding provider rejected the request credentials.",
+                    "Verify the API key, account permissions, and configured base URL before retrying.",
+                    analysis.Details)),
+            ExternalServiceFailureKind.RequestTimedOut => new ToolErrorDefinition(
+                LogLevel.Warning,
+                new ToolError(
+                    "provider_timeout",
+                    "The external provider did not respond before the timeout expired.",
+                    "Retry the request or use another provider/model if timeouts continue.",
+                    analysis.Details)),
+            ExternalServiceFailureKind.ConnectionFailed => new ToolErrorDefinition(
+                LogLevel.Warning,
+                new ToolError(
+                    "provider_connectivity_failed",
+                    "The server could not reach the configured AI or embedding provider.",
+                    "Check network access, DNS, firewall rules, and the configured provider endpoint before retrying.",
+                    analysis.Details)),
+            ExternalServiceFailureKind.ProviderFailure => new ToolErrorDefinition(
+                LogLevel.Warning,
+                new ToolError(
+                    "ai_provider_failed",
+                    "The AI or embedding provider returned an error for this request.",
+                    "Inspect the provider response, then retry or switch providers or models if the issue continues.",
+                    analysis.Details)),
+            _ => new ToolErrorDefinition(
+                LogLevel.Error,
+                new ToolError(
+                    "internal_error",
+                    "The server could not complete this request.",
+                    "Check the server logs for details, correct the underlying issue, and retry.",
+                    exception.Message))
+        };
     }
 
     private sealed record ToolErrorDefinition(LogLevel LogLevel, ToolError Error);

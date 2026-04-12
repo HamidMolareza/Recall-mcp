@@ -39,4 +39,38 @@ public sealed class ExternalServiceFailureClassifierTests
         warning.Message.Should().Contain("could not reach");
         warning.SuggestedAction.Should().Contain("Check network access");
     }
+
+    [Fact]
+    public void CreateFallbackWarning_WithModelNotFound_ReturnsModelUnavailableWarning()
+    {
+        var exception = new InvalidOperationException(
+            "HTTP 503 (api_provider_error: model_not_found)\n\nno available channel for model text-embedding-3-small in group gapcode (request id: 20260412025139942968455eWD8McaU)");
+
+        var warning = ExternalServiceFailureClassifier.CreateFallbackWarning(
+            exception,
+            "embedding request",
+            "GapGpt",
+            "text-embedding-3-small",
+            "Local deterministic embeddings were used.");
+
+        warning.Code.Should().Be("ai_model_unavailable");
+        warning.Message.Should().Contain("unavailable or unsupported");
+        warning.SuggestedAction.Should().Contain("Verify the model name");
+    }
+
+    [Fact]
+    public void CreateFallbackWarning_WithProviderErrorAndRequestIdDigits_DoesNotMisclassifyAsQuota()
+    {
+        var exception = new InvalidOperationException(
+            "HTTP 503 (api_provider_error: upstream_failed) request id: 20260412025139942968455eWD8McaU");
+
+        var warning = ExternalServiceFailureClassifier.CreateFallbackWarning(
+            exception,
+            "embedding request",
+            "GapGpt",
+            "text-embedding-3-small",
+            "Local deterministic embeddings were used.");
+
+        warning.Code.Should().Be("ai_provider_failed");
+    }
 }
