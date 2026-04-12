@@ -4,6 +4,7 @@ using MemoryMcp.Domain.Entities;
 using MemoryMcp.Domain.Enums;
 using MemoryMcp.Domain.ValueObjects;
 using MemoryMcp.Infrastructure.Persistence;
+using MemoryMcp.Infrastructure.VectorSearch;
 using MemoryMcp.Server.Tools;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -44,14 +45,17 @@ public sealed class RuntimeStatusToolTests
 
         await using var dbContext = new MemoryDbContext(options);
         await dbContext.Database.EnsureCreatedAsync();
+        var vectorStore = new InMemoryVectorStore(NullLogger<InMemoryVectorStore>.Instance);
         var memory = MemoryEntry.Create("Remember this", MemoryType.Fact, new Namespace("status/test"));
         memory.SetEmbedding(new EmbeddingVector([1.0f, 2.0f]));
         dbContext.Memories.Add(memory);
         await dbContext.SaveChangesAsync();
+        await vectorStore.UpsertAsync(memory.Id, memory.Embedding!, memory.Namespace.Value);
 
         var tool = new RuntimeStatusTool(
             configuration,
             dbContext,
+            vectorStore,
             new TestOperationNoticeSink(),
             NullLogger<RuntimeStatusTool>.Instance);
 
@@ -64,6 +68,10 @@ public sealed class RuntimeStatusToolTests
         data.Persistence.MemoryCount.Should().Be(1);
         data.Persistence.EmbeddedMemoryCount.Should().Be(1);
         data.Providers.EmbeddingProvider.Should().Be("GapGpt");
+        data.VectorIndex.EntryCount.Should().Be(1);
+        data.VectorIndex.NamespacedEntryCount.Should().Be(1);
+        data.VectorIndex.UnscopedEntryCount.Should().Be(0);
+        data.VectorIndex.NamespaceCounts.Should().ContainKey("status/test").WhoseValue.Should().Be(1);
     }
 
     private sealed class TestOperationNoticeSink : IOperationNoticeSink

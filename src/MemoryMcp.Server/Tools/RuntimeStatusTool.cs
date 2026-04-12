@@ -1,6 +1,7 @@
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Infrastructure.Persistence;
 using MemoryMcp.Infrastructure.Runtime;
+using MemoryMcp.Infrastructure.VectorSearch;
 using MemoryMcp.Server.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -15,17 +16,20 @@ public sealed class RuntimeStatusTool
 {
     private readonly IConfiguration _configuration;
     private readonly MemoryDbContext _dbContext;
+    private readonly InMemoryVectorStore _vectorStore;
     private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<RuntimeStatusTool> _logger;
 
     public RuntimeStatusTool(
         IConfiguration configuration,
         MemoryDbContext dbContext,
+        InMemoryVectorStore vectorStore,
         IOperationNoticeSink operationNoticeSink,
         ILogger<RuntimeStatusTool> logger)
     {
         _configuration = configuration;
         _dbContext = dbContext;
+        _vectorStore = vectorStore;
         _operationNoticeSink = operationNoticeSink;
         _logger = logger;
     }
@@ -44,6 +48,7 @@ public sealed class RuntimeStatusTool
 
             var memoryCount = await _dbContext.Memories.CountAsync(innerCt);
             var embeddedMemoryCount = await _dbContext.Memories.CountAsync(memory => memory.Embedding != null, innerCt);
+            var vectorSnapshot = _vectorStore.GetSnapshot();
 
             return new RuntimeStatusData(
                 Directory.GetCurrentDirectory(),
@@ -64,7 +69,12 @@ public sealed class RuntimeStatusTool
                     _configuration.GetSection(AiSettings.SectionName)["Provider"] ?? "Simple",
                     _configuration.GetSection(AiSettings.SectionName)["Model"] ?? "gapgpt-qwen-3.5",
                     _configuration.GetSection(AiSettings.SectionName)["BaseUrl"] ?? "https://api.gapgpt.app/v1"),
-                new RuntimePersistenceStatus(memoryCount, embeddedMemoryCount));
+                new RuntimePersistenceStatus(memoryCount, embeddedMemoryCount),
+                new RuntimeVectorIndexStatus(
+                    vectorSnapshot.EntryCount,
+                    vectorSnapshot.NamespacedEntryCount,
+                    vectorSnapshot.UnscopedEntryCount,
+                    vectorSnapshot.NamespaceCounts));
         }, ct);
     }
 }
@@ -74,7 +84,8 @@ public sealed record RuntimeStatusData(
     RuntimeStorageStatus Storage,
     RuntimeLoggingStatus Logging,
     RuntimeProviderStatus Providers,
-    RuntimePersistenceStatus Persistence);
+    RuntimePersistenceStatus Persistence,
+    RuntimeVectorIndexStatus VectorIndex);
 
 public sealed record RuntimeStorageStatus(
     string RawConnectionString,
@@ -99,3 +110,9 @@ public sealed record RuntimeProviderStatus(
 public sealed record RuntimePersistenceStatus(
     int MemoryCount,
     int EmbeddedMemoryCount);
+
+public sealed record RuntimeVectorIndexStatus(
+    int EntryCount,
+    int NamespacedEntryCount,
+    int UnscopedEntryCount,
+    IReadOnlyDictionary<string, int> NamespaceCounts);

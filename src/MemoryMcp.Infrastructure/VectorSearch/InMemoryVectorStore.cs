@@ -109,4 +109,32 @@ public sealed class InMemoryVectorStore : IVectorStore
 
         return Task.FromResult<IReadOnlyList<VectorSearchResult>>(results);
     }
+
+    public VectorIndexSnapshot GetSnapshot()
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            var namespaceCounts = _namespaces.Values
+                .GroupBy(static ns => ns, StringComparer.Ordinal)
+                .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
+            var unscopedEntryCount = _vectors.Keys.Count(id => !_namespaces.ContainsKey(id));
+
+            return new VectorIndexSnapshot(
+                _vectors.Count,
+                _namespaces.Count,
+                unscopedEntryCount,
+                namespaceCounts);
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
 }
+
+public sealed record VectorIndexSnapshot(
+    int EntryCount,
+    int NamespacedEntryCount,
+    int UnscopedEntryCount,
+    IReadOnlyDictionary<string, int> NamespaceCounts);
