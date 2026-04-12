@@ -26,6 +26,12 @@ public static class DependencyInjection
         var embeddingDimensions = int.TryParse(embeddingSection["Dimensions"], out var parsedDimensions)
             ? parsedDimensions
             : 256;
+        var embeddingCooldownSeconds = int.TryParse(embeddingSection["CooldownSeconds"], out var parsedCooldownSeconds)
+            ? parsedCooldownSeconds
+            : 120;
+        var embeddingCooldownFailureThreshold = int.TryParse(embeddingSection["CooldownFailureThreshold"], out var parsedCooldownFailureThreshold)
+            ? parsedCooldownFailureThreshold
+            : 3;
         var embeddingModel = embeddingSection["Model"] ?? "nomic-embed-text";
         var embeddingProvider = embeddingSection["Provider"] ?? "Ollama";
         var embeddingBaseUrl = embeddingSection["BaseUrl"] ?? "http://localhost:11434";
@@ -54,13 +60,16 @@ public static class DependencyInjection
         services.AddScoped<IMemoryRepository, MemoryRepository>();
         services.AddSingleton<IVectorStore, InMemoryVectorStore>();
         services.AddScoped<IExportService, JsonExportService>();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
         services.AddSingleton(new EmbeddingProviderOptions
         {
             Provider = embeddingProvider,
             Model = embeddingModel,
             BaseUrl = embeddingBaseUrl,
             ApiKey = embeddingApiKey,
-            Dimensions = embeddingDimensions
+            Dimensions = embeddingDimensions,
+            CooldownSeconds = embeddingCooldownSeconds,
+            CooldownFailureThreshold = embeddingCooldownFailureThreshold
         });
         services.AddSingleton(new AiSummarizerOptions
         {
@@ -93,6 +102,8 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(embeddingBaseUrl);
         });
+        services.AddSingleton<EmbeddingProviderCooldownState>();
+        services.AddScoped<IRemoteEmbeddingGenerator, OpenAiCompatibleRemoteEmbeddingGenerator>();
         services.AddScoped<DeterministicEmbeddingProvider>();
         services.AddScoped<IEmbeddingProvider>(serviceProvider =>
         {

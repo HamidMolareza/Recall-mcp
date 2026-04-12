@@ -7,4 +7,6 @@ public sealed class EmbeddingProviderOptions
     public string BaseUrl { get; init; } = "http://localhost:11434";
     public string ApiKey { get; init; } = string.Empty;
     public int Dimensions { get; init; } = 256;
+    public int CooldownSeconds { get; init; } = 120;
+    public int CooldownFailureThreshold { get; init; } = 3;
 }

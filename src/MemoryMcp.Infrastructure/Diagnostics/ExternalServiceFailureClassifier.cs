@@ -13,12 +13,26 @@ public static class ExternalServiceFailureClassifier
         string fallbackAction)
     {
         ArgumentNullException.ThrowIfNull(exception);
+        return CreateFallbackWarning(
+            ExternalServiceFailureAnalysis.Analyze(exception),
+            operation,
+            provider,
+            model,
+            fallbackAction);
+    }
+
+    public static OperationWarning CreateFallbackWarning(
+        ExternalServiceFailureInfo analysis,
+        string operation,
+        string provider,
+        string model,
+        string fallbackAction)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
         ArgumentException.ThrowIfNullOrWhiteSpace(fallbackAction);
-
-        var analysis = ExternalServiceFailureAnalysis.Analyze(exception);
 
         return analysis.Kind switch
         {
