@@ -5,6 +5,7 @@ using MemoryMcp.Infrastructure.Persistence;
 using MemoryMcp.Infrastructure.Runtime;
 using MemoryMcp.Infrastructure.VectorSearch;
 using MemoryMcp.Server.Configuration;
+using MemoryMcp.Server.Runtime;
 using MemoryMcp.Server.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,6 +32,7 @@ try
     builder.Services.Configure<MemorySettings>(builder.Configuration.GetSection(MemorySettings.SectionName));
     builder.Services.Configure<LoggingSettings>(builder.Configuration.GetSection(LoggingSettings.SectionName));
     builder.Services.Configure<ServerSettings>(builder.Configuration.GetSection(ServerSettings.SectionName));
+    builder.Services.AddSingleton<ProviderFallbackSummaryService>();
 
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);

@@ -3,6 +3,7 @@ using MemoryMcp.Infrastructure.Persistence;
 using MemoryMcp.Infrastructure.Runtime;
 using MemoryMcp.Infrastructure.VectorSearch;
 using MemoryMcp.Server.Configuration;
+using MemoryMcp.Server.Runtime;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -17,6 +18,7 @@ public sealed class RuntimeStatusTool
     private readonly IConfiguration _configuration;
     private readonly MemoryDbContext _dbContext;
     private readonly InMemoryVectorStore _vectorStore;
+    private readonly ProviderFallbackSummaryService _providerFallbackSummaryService;
     private readonly IOperationNoticeSink _operationNoticeSink;
     private readonly ILogger<RuntimeStatusTool> _logger;
 
@@ -24,12 +26,14 @@ public sealed class RuntimeStatusTool
         IConfiguration configuration,
         MemoryDbContext dbContext,
         InMemoryVectorStore vectorStore,
+        ProviderFallbackSummaryService providerFallbackSummaryService,
         IOperationNoticeSink operationNoticeSink,
         ILogger<RuntimeStatusTool> logger)
     {
         _configuration = configuration;
         _dbContext = dbContext;
         _vectorStore = vectorStore;
+        _providerFallbackSummaryService = providerFallbackSummaryService;
         _operationNoticeSink = operationNoticeSink;
         _logger = logger;
     }
@@ -49,6 +53,10 @@ public sealed class RuntimeStatusTool
             var memoryCount = await _dbContext.Memories.CountAsync(innerCt);
             var embeddedMemoryCount = await _dbContext.Memories.CountAsync(memory => memory.Embedding != null, innerCt);
             var vectorSnapshot = _vectorStore.GetSnapshot();
+            var providerFallbackSummary = await _providerFallbackSummaryService.SummarizeAsync(
+                resolvedLogPath,
+                _configuration.GetSection(LoggingSettings.SectionName)["ErrorLogFile"] ?? "errors-.log",
+                innerCt);
 
             return new RuntimeStatusData(
                 Directory.GetCurrentDirectory(),
@@ -74,7 +82,20 @@ public sealed class RuntimeStatusTool
                     vectorSnapshot.EntryCount,
                     vectorSnapshot.NamespacedEntryCount,
                     vectorSnapshot.UnscopedEntryCount,
-                    vectorSnapshot.NamespaceCounts));
+                    vectorSnapshot.NamespaceCounts),
+                new RuntimeProviderFallbackStatus(
+                    providerFallbackSummary.LookbackWindow,
+                    providerFallbackSummary.TotalRecentEvents,
+                    providerFallbackSummary.LastOccurredAt,
+                    providerFallbackSummary.Aggregates
+                        .Select(aggregate => new RuntimeProviderFallbackAggregate(
+                            aggregate.Code,
+                            aggregate.Provider,
+                            aggregate.Model,
+                            aggregate.Count,
+                            aggregate.LastOccurredAt,
+                            aggregate.LatestMessage))
+                        .ToArray()));
         }, ct);
     }
 }
@@ -85,7 +106,8 @@ public sealed record RuntimeStatusData(
     RuntimeLoggingStatus Logging,
     RuntimeProviderStatus Providers,
     RuntimePersistenceStatus Persistence,
-    RuntimeVectorIndexStatus VectorIndex);
+    RuntimeVectorIndexStatus VectorIndex,
+    RuntimeProviderFallbackStatus ProviderFallbacks);
 
 public sealed record RuntimeStorageStatus(
     string RawConnectionString,
@@ -116,3 +138,17 @@ public sealed record RuntimeVectorIndexStatus(
     int NamespacedEntryCount,
     int UnscopedEntryCount,
     IReadOnlyDictionary<string, int> NamespaceCounts);
+
+public sealed record RuntimeProviderFallbackStatus(
+    TimeSpan LookbackWindow,
+    int TotalRecentEvents,
+    DateTimeOffset? LastOccurredAt,
+    IReadOnlyList<RuntimeProviderFallbackAggregate> Aggregates);
+
+public sealed record RuntimeProviderFallbackAggregate(
+    string Code,
+    string? Provider,
+    string? Model,
+    int Count,
+    DateTimeOffset LastOccurredAt,
+    string LatestMessage);
