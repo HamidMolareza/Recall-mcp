@@ -57,15 +57,14 @@ static void ConfigureSerilog(HostApplicationBuilder builder)
 {
     builder.Services.AddSerilog((services, config) =>
     {
-        var loggingSection = builder.Configuration.GetSection(LoggingSettings.SectionName);
-        var logPath = RuntimePathResolver.ResolvePath(loggingSection["LogPath"] ?? "app-data/logs");
-        var generalFile = loggingSection["GeneralLogFile"] ?? "app-.log";
-        var auditFile = loggingSection["AuditLogFile"] ?? "audit-.log";
-        var errorFile = loggingSection["ErrorLogFile"] ?? "errors-.log";
-        var retainedCount = loggingSection.GetValue<int?>("RetainedFileCountLimit") ?? 30;
+        var loggingSettings = builder.Configuration.GetSection(LoggingSettings.SectionName).Get<LoggingSettings>() ?? new LoggingSettings();
+        var logPath = RuntimePathResolver.ResolvePath(loggingSettings.LogPath);
+        var generalFile = loggingSettings.GeneralLogFile;
+        var auditFile = loggingSettings.AuditLogFile;
+        var errorFile = loggingSettings.ErrorLogFile;
+        var retainedCount = loggingSettings.RetainedFileCountLimit;
 
-        config
-            .ReadFrom.Configuration(builder.Configuration)
+        SerilogLevelConfigurator.Apply(config, loggingSettings)
             .Enrich.FromLogContext()
             .WriteTo.File(
                 Path.Combine(logPath, generalFile),

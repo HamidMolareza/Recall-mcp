@@ -84,7 +84,7 @@ public static class DependencyInjection
             var options = serviceProvider.GetRequiredService<AiSummarizerOptions>();
             var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("MemoryMcp.Infrastructure.ProviderSelection");
 
-            logger.LogInformation(
+            logger.LogDebug(
                 "Configuring summarizer provider {Provider} with model {Model} and endpoint {BaseUrl}",
                 options.Provider,
                 options.Model,
@@ -111,7 +111,7 @@ public static class DependencyInjection
             var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("MemoryMcp.Infrastructure.ProviderSelection");
             var providerKey = options.Provider.Trim().ToLowerInvariant();
 
-            logger.LogInformation(
+            logger.LogDebug(
                 "Configuring embedding provider {Provider} with model {Model} and endpoint {BaseUrl}",
                 options.Provider,
                 options.Model,
@@ -185,7 +185,7 @@ public static class DependencyInjection
         logger.Log(logLevel, messageTemplate ?? "Resolved embedding provider implementation {ResolvedProvider}", configuredProvider ?? resolvedProvider);
         if (messageTemplate is not null)
         {
-            logger.LogInformation("Resolved embedding provider implementation {ResolvedProvider}", resolvedProvider);
+            logger.LogDebug("Resolved embedding provider implementation {ResolvedProvider}", resolvedProvider);
         }
 
         return provider;
