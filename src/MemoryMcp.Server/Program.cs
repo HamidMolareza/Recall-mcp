@@ -2,6 +2,7 @@ using MemoryMcp.Application;
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Infrastructure;
 using MemoryMcp.Infrastructure.Persistence;
+using MemoryMcp.Infrastructure.Runtime;
 using MemoryMcp.Server.Configuration;
 using MemoryMcp.Server.Tools;
 using Microsoft.Extensions.Configuration;
@@ -57,7 +58,7 @@ static void ConfigureSerilog(HostApplicationBuilder builder)
     builder.Services.AddSerilog((services, config) =>
     {
         var loggingSection = builder.Configuration.GetSection(LoggingSettings.SectionName);
-        var logPath = loggingSection["LogPath"] ?? "./logs";
+        var logPath = RuntimePathResolver.ResolvePath(loggingSection["LogPath"] ?? "app-data/logs");
         var generalFile = loggingSection["GeneralLogFile"] ?? "app-.log";
         var auditFile = loggingSection["AuditLogFile"] ?? "audit-.log";
         var errorFile = loggingSection["ErrorLogFile"] ?? "errors-.log";
@@ -113,15 +114,15 @@ static void EnsureBaseFolders(IConfiguration configuration)
     var logPath = configuration.GetSection(LoggingSettings.SectionName)["LogPath"];
     if (!string.IsNullOrWhiteSpace(logPath))
     {
-        var fullLogPath = Path.GetFullPath(logPath, Directory.GetCurrentDirectory());
+        var fullLogPath = RuntimePathResolver.ResolvePath(logPath);
         Directory.CreateDirectory(fullLogPath);
     }
 
     var connectionString = configuration.GetSection(StorageSettings.SectionName)["ConnectionString"];
-    var databasePath = TryExtractSqliteFilePath(connectionString);
+    var databasePath = RuntimePathResolver.TryExtractSqliteFilePath(connectionString);
     if (!string.IsNullOrWhiteSpace(databasePath))
     {
-        var fullDatabasePath = Path.GetFullPath(databasePath, Directory.GetCurrentDirectory());
+        var fullDatabasePath = RuntimePathResolver.ResolvePath(databasePath);
         var databaseDirectory = Path.GetDirectoryName(fullDatabasePath);
 
         if (!string.IsNullOrWhiteSpace(databaseDirectory))
@@ -133,42 +134,16 @@ static void EnsureBaseFolders(IConfiguration configuration)
 
 static void LogStartupConfiguration(IConfiguration configuration)
 {
+    var rawConnectionString = configuration.GetSection(StorageSettings.SectionName)["ConnectionString"];
+    var rawLogPath = configuration.GetSection(LoggingSettings.SectionName)["LogPath"];
+
     Log.Information(
         "Startup configuration: cwd={CurrentDirectory}, storage={ConnectionString}, logPath={LogPath}, embeddingProvider={EmbeddingProvider}, embeddingBaseUrl={EmbeddingBaseUrl}, aiProvider={AiProvider}, aiBaseUrl={AiBaseUrl}",
         Directory.GetCurrentDirectory(),
-        configuration.GetSection(StorageSettings.SectionName)["ConnectionString"],
-        configuration.GetSection(LoggingSettings.SectionName)["LogPath"],
+        rawConnectionString is null ? null : RuntimePathResolver.ResolveSqliteConnectionString(rawConnectionString),
+        string.IsNullOrWhiteSpace(rawLogPath) ? null : RuntimePathResolver.ResolvePath(rawLogPath),
         configuration.GetSection(EmbeddingSettings.SectionName)["Provider"],
         configuration.GetSection(EmbeddingSettings.SectionName)["BaseUrl"],
         configuration.GetSection(AiSettings.SectionName)["Provider"],
         configuration.GetSection(AiSettings.SectionName)["BaseUrl"]);
-}
-
-static string? TryExtractSqliteFilePath(string? connectionString)
-{
-    if (string.IsNullOrWhiteSpace(connectionString))
-    {
-        return null;
-    }
-
-    foreach (var segment in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-    {
-        var separatorIndex = segment.IndexOf('=');
-        if (separatorIndex <= 0)
-        {
-            continue;
-        }
-
-        var key = segment[..separatorIndex].Trim();
-        var value = segment[(separatorIndex + 1)..].Trim().Trim('"');
-        if ((key.Equals("Data Source", StringComparison.OrdinalIgnoreCase) ||
-             key.Equals("DataSource", StringComparison.OrdinalIgnoreCase)) &&
-            !string.IsNullOrWhiteSpace(value) &&
-            !value.Equals(":memory:", StringComparison.OrdinalIgnoreCase))
-        {
-            return value;
-        }
-    }
-
-    return null;
 }

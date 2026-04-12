@@ -3,6 +3,7 @@ using MemoryMcp.Infrastructure.Embeddings;
 using MemoryMcp.Infrastructure.Export;
 using MemoryMcp.Infrastructure.Persistence;
 using MemoryMcp.Infrastructure.Persistence.Repositories;
+using MemoryMcp.Infrastructure.Runtime;
 using MemoryMcp.Infrastructure.Text;
 using MemoryMcp.Infrastructure.VectorSearch;
 using MemoryMcp.Domain.ValueObjects;
@@ -17,8 +18,9 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetSection("Storage")["ConnectionString"]
-                               ?? "Data Source=memory.db";
+        var connectionString = RuntimePathResolver.ResolveSqliteConnectionString(
+            configuration.GetSection("Storage")["ConnectionString"]
+            ?? "Data Source=app-data/memory.db");
         var embeddingSection = configuration.GetSection("Embedding");
         var aiSection = configuration.GetSection("AI");
         var embeddingDimensions = int.TryParse(embeddingSection["Dimensions"], out var parsedDimensions)
