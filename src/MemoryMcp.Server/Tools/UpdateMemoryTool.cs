@@ -1,6 +1,7 @@
 using MemoryMcp.Application.DTOs;
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Application.Services;
+using MemoryMcp.Domain.ValueObjects;
 using ModelContextProtocol.Server;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel;
@@ -11,6 +12,7 @@ namespace MemoryMcp.Server.Tools;
 public sealed class UpdateMemoryTool
 {
     private readonly MemoryService _memoryService;
+    private readonly IEmbeddingProvider _embeddingProvider;
     private readonly DeduplicationService _deduplicationService;
     private readonly ContradictionDetector _contradictionDetector;
     private readonly IOperationNoticeSink _operationNoticeSink;
@@ -18,12 +20,14 @@ public sealed class UpdateMemoryTool
 
     public UpdateMemoryTool(
         MemoryService memoryService,
+        IEmbeddingProvider embeddingProvider,
         DeduplicationService deduplicationService,
         ContradictionDetector contradictionDetector,
         IOperationNoticeSink operationNoticeSink,
         ILogger<UpdateMemoryTool> logger)
     {
         _memoryService = memoryService;
+        _embeddingProvider = embeddingProvider;
         _deduplicationService = deduplicationService;
         _contradictionDetector = contradictionDetector;
         _operationNoticeSink = operationNoticeSink;
@@ -45,12 +49,14 @@ public sealed class UpdateMemoryTool
             var parsedType = MemoryTypeArgumentParser.ParseOptional(type, nameof(type));
             IReadOnlyList<Guid> duplicateIds = [];
             IReadOnlyList<Guid> contradictionIds = [];
+            EmbeddingVector? embedding = null;
 
             if (!string.IsNullOrWhiteSpace(content))
             {
-                duplicateIds = await _deduplicationService.FindDuplicatesAsync(content, ct: innerCt);
+                embedding = await _embeddingProvider.GenerateEmbeddingAsync(content, innerCt);
+                duplicateIds = await _deduplicationService.FindDuplicatesAsync(content, embedding, ct: innerCt);
                 var current = await _memoryService.GetByIdAsync(id, innerCt);
-                contradictionIds = await _contradictionDetector.DetectContradictionsAsync(content, current.Namespace, innerCt);
+                contradictionIds = await _contradictionDetector.DetectContradictionsAsync(content, current.Namespace, embedding, innerCt);
             }
 
             var memory = await _memoryService.UpdateAsync(new UpdateMemoryRequest
@@ -59,7 +65,8 @@ public sealed class UpdateMemoryTool
                 Content = content,
                 Type = parsedType,
                 Tags = tags,
-                ExpiresAt = expiresAt
+                ExpiresAt = expiresAt,
+                Embedding = embedding
             }, innerCt);
 
             _logger.LogInformation("Updated memory {MemoryId}", id);

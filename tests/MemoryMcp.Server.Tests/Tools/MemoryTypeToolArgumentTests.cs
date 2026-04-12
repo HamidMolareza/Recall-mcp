@@ -15,6 +15,7 @@ public sealed class MemoryTypeToolArgumentTests
             null!,
             null!,
             null!,
+            null!,
             new TestOperationNoticeSink(),
             NullLogger<StoreMemoryTool>.Instance);
 
@@ -49,6 +50,7 @@ public sealed class MemoryTypeToolArgumentTests
     public async Task UpdateMemoryAsync_InvalidType_ReturnsStructuredError()
     {
         var tool = new UpdateMemoryTool(
+            null!,
             null!,
             null!,
             null!,

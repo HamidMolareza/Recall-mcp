@@ -1,4 +1,5 @@
 using MemoryMcp.Domain.Enums;
+using MemoryMcp.Domain.ValueObjects;
 
 namespace MemoryMcp.Application.DTOs;
 
@@ -9,4 +10,5 @@ public sealed record UpdateMemoryRequest
     public MemoryType? Type { get; init; }
     public IReadOnlyList<string>? Tags { get; init; }
     public DateTime? ExpiresAt { get; init; }
+    public EmbeddingVector? Embedding { get; init; }
 }

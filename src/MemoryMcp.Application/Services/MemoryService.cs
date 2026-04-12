@@ -44,7 +44,7 @@ public sealed class MemoryService
             request.Tags,
             request.ExpiresAt);
 
-        var embedding = await _embeddingProvider.GenerateEmbeddingAsync(request.Content, ct);
+        var embedding = request.Embedding ?? await _embeddingProvider.GenerateEmbeddingAsync(request.Content, ct);
         entry.SetEmbedding(embedding);
 
         await _repository.AddAsync(entry, ct);
@@ -81,7 +81,7 @@ public sealed class MemoryService
             !string.Equals(entry.Content, request.Content, StringComparison.Ordinal))
         {
             entry.UpdateContent(request.Content);
-            var embedding = await _embeddingProvider.GenerateEmbeddingAsync(request.Content, ct);
+            var embedding = request.Embedding ?? await _embeddingProvider.GenerateEmbeddingAsync(request.Content, ct);
             entry.SetEmbedding(embedding);
             await _vectorStore.UpsertAsync(entry.Id, embedding, entry.Namespace.Value, ct);
         }

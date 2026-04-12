@@ -69,6 +69,50 @@ public class MemoryServiceTests
     }
 
     [Fact]
+    public async Task StoreAsync_WithPrecomputedEmbedding_DoesNotCallEmbeddingProvider()
+    {
+        var vector = new EmbeddingVector([4.0f, 5.0f, 6.0f]);
+
+        await _sut.StoreAsync(new StoreMemoryRequest
+        {
+            Content = "Test content",
+            Type = MemoryType.Fact,
+            Namespace = "work/project-x",
+            Embedding = vector
+        });
+
+        await _embeddingProvider.DidNotReceiveWithAnyArgs().GenerateEmbeddingAsync(default!, default);
+        await _vectorStore.Received(1)
+            .UpsertAsync(Arg.Any<Guid>(), vector, "work/project-x", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithPrecomputedEmbedding_DoesNotCallEmbeddingProvider()
+    {
+        var existing = MemoryEntry.Create(
+            "Old content",
+            MemoryType.Fact,
+            new Namespace("work/project-x"),
+            ["tag1"]);
+        var vector = new EmbeddingVector([7.0f, 8.0f, 9.0f]);
+
+        _repository.GetByIdAsync(existing.Id, Arg.Any<CancellationToken>())
+            .Returns(existing);
+
+        var result = await _sut.UpdateAsync(new UpdateMemoryRequest
+        {
+            Id = existing.Id,
+            Content = "New content",
+            Embedding = vector
+        });
+
+        result.Content.Should().Be("New content");
+        await _embeddingProvider.DidNotReceiveWithAnyArgs().GenerateEmbeddingAsync(default!, default);
+        await _vectorStore.Received(1)
+            .UpsertAsync(existing.Id, vector, "work/project-x", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task GetByIdAsync_WhenMemoryMissing_ThrowsMemoryNotFoundException()
     {
         var id = Guid.NewGuid();

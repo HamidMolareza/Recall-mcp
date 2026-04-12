@@ -1,4 +1,5 @@
 using MemoryMcp.Application.Interfaces;
+using MemoryMcp.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
 
 namespace MemoryMcp.Application.Services;
@@ -22,11 +23,15 @@ public sealed class DeduplicationService
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<Guid>> FindDuplicatesAsync(string content, double threshold = 0.95, CancellationToken ct = default)
+    public async Task<IReadOnlyList<Guid>> FindDuplicatesAsync(
+        string content,
+        EmbeddingVector? embedding = null,
+        double threshold = 0.95,
+        CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
 
-        var vector = await _embeddingProvider.GenerateEmbeddingAsync(content, ct);
+        var vector = embedding ?? await _embeddingProvider.GenerateEmbeddingAsync(content, ct);
         var candidates = await _vectorStore.SearchAsync(vector, 20, ct);
 
         var duplicates = new List<Guid>();

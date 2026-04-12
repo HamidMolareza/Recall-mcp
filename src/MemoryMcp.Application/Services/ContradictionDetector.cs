@@ -1,4 +1,5 @@
 using MemoryMcp.Application.Interfaces;
+using MemoryMcp.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
 
 namespace MemoryMcp.Application.Services;
@@ -22,13 +23,17 @@ public sealed class ContradictionDetector
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<Guid>> DetectContradictionsAsync(string content, string ns, CancellationToken ct = default)
+    public async Task<IReadOnlyList<Guid>> DetectContradictionsAsync(
+        string content,
+        string ns,
+        EmbeddingVector? embedding = null,
+        CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(ns);
 
         var normalizedNamespace = ns.Trim().ToLowerInvariant();
-        var vector = await _embeddingProvider.GenerateEmbeddingAsync(content, ct);
+        var vector = embedding ?? await _embeddingProvider.GenerateEmbeddingAsync(content, ct);
         var candidates = await _vectorStore.SearchAsync(vector, 25, ct);
 
         var contradictions = new List<Guid>();

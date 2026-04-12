@@ -11,6 +11,7 @@ namespace MemoryMcp.Server.Tools;
 public sealed class StoreMemoryTool
 {
     private readonly MemoryService _memoryService;
+    private readonly IEmbeddingProvider _embeddingProvider;
     private readonly DeduplicationService _deduplicationService;
     private readonly ContradictionDetector _contradictionDetector;
     private readonly IOperationNoticeSink _operationNoticeSink;
@@ -18,12 +19,14 @@ public sealed class StoreMemoryTool
 
     public StoreMemoryTool(
         MemoryService memoryService,
+        IEmbeddingProvider embeddingProvider,
         DeduplicationService deduplicationService,
         ContradictionDetector contradictionDetector,
         IOperationNoticeSink operationNoticeSink,
         ILogger<StoreMemoryTool> logger)
     {
         _memoryService = memoryService;
+        _embeddingProvider = embeddingProvider;
         _deduplicationService = deduplicationService;
         _contradictionDetector = contradictionDetector;
         _operationNoticeSink = operationNoticeSink;
@@ -44,20 +47,22 @@ public sealed class StoreMemoryTool
         return await ToolExecutionHelper.ExecuteAsync("store_memory", _logger, _operationNoticeSink, async innerCt =>
         {
             var parsedType = MemoryTypeArgumentParser.ParseRequired(type, nameof(type));
-            var duplicateIds = await _deduplicationService.FindDuplicatesAsync(content, ct: innerCt);
+            var embedding = await _embeddingProvider.GenerateEmbeddingAsync(content, innerCt);
+            var duplicateIds = await _deduplicationService.FindDuplicatesAsync(content, embedding, ct: innerCt);
             if (rejectDuplicates && duplicateIds.Count > 0)
             {
                 throw new MemoryMcp.Domain.Exceptions.DuplicateMemoryException(duplicateIds[0]);
             }
 
-            var contradictionIds = await _contradictionDetector.DetectContradictionsAsync(content, memoryNamespace, innerCt);
+            var contradictionIds = await _contradictionDetector.DetectContradictionsAsync(content, memoryNamespace, embedding, innerCt);
             var memory = await _memoryService.StoreAsync(new StoreMemoryRequest
             {
                 Content = content,
                 Type = parsedType,
                 Namespace = memoryNamespace,
                 Tags = tags,
-                ExpiresAt = expiresAt
+                ExpiresAt = expiresAt,
+                Embedding = embedding
             }, innerCt);
 
             _logger.LogInformation("Stored memory {MemoryId}", memory.Id);
