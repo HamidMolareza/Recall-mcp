@@ -42,14 +42,19 @@ public sealed class SearchService
         var queryVector = await _embeddingProvider.GenerateEmbeddingAsync(request.Query, ct);
         var overfetch = Math.Clamp(request.TopK * 5, request.TopK, 500);
         var matches = await _vectorStore.SearchAsync(queryVector, overfetch, ct);
+        var matchedIds = matches
+            .Select(match => match.MemoryId)
+            .Distinct()
+            .ToArray();
+        var entries = await _repository.GetByIdsAsync(matchedIds, ct);
+        var entryMap = entries.ToDictionary(entry => entry.Id);
 
         var results = new List<SearchResult>(request.TopK);
         foreach (var match in matches)
         {
             ct.ThrowIfCancellationRequested();
 
-            var entry = await _repository.GetByIdAsync(match.MemoryId, ct);
-            if (entry is null || !Matches(entry, request))
+            if (!entryMap.TryGetValue(match.MemoryId, out var entry) || !Matches(entry, request))
             {
                 continue;
             }

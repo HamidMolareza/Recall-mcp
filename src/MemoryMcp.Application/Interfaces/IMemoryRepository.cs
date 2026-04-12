@@ -6,6 +6,7 @@ namespace MemoryMcp.Application.Interfaces;
 public interface IMemoryRepository
 {
     Task<MemoryEntry?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<MemoryEntry>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct = default);
     Task<IReadOnlyList<MemoryEntry>> ListAsync(MemoryQueryFilter filter, CancellationToken ct = default);
     Task<int> CountAsync(MemoryQueryFilter filter, CancellationToken ct = default);
     Task AddAsync(MemoryEntry entry, CancellationToken ct = default);

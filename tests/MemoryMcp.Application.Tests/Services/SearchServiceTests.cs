@@ -66,8 +66,8 @@ public class SearchServiceTests
             expiredEntry,
             Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
 
-        _repository.GetByIdAsync(activeEntry.Id, Arg.Any<CancellationToken>()).Returns(activeEntry);
-        _repository.GetByIdAsync(expiredEntry.Id, Arg.Any<CancellationToken>()).Returns(expiredEntry);
+        _repository.GetByIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns([activeEntry, expiredEntry]);
 
         var result = await _sut.SemanticSearchAsync(new SearchMemoryRequest
         {
@@ -80,5 +80,12 @@ public class SearchServiceTests
         result.Should().HaveCount(1);
         result[0].Memory.Id.Should().Be(activeEntry.Id);
         result[0].Score.Should().BeApproximately(0.92, 0.0001);
+        await _repository.Received(1).GetByIdsAsync(
+            Arg.Is<IReadOnlyCollection<Guid>>(ids =>
+                ids.Count == 2 &&
+                ids.Contains(activeEntry.Id) &&
+                ids.Contains(expiredEntry.Id)),
+            Arg.Any<CancellationToken>());
+        _ = _repository.DidNotReceiveWithAnyArgs().GetByIdAsync(Guid.Empty, default);
     }
 }

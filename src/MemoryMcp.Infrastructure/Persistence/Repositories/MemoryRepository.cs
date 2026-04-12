@@ -1,5 +1,6 @@
 using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Domain.Entities;
+using MemoryMcp.Domain.ValueObjects;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -22,25 +23,54 @@ public sealed class MemoryRepository : IMemoryRepository
             .FirstOrDefaultAsync(memory => memory.Id == id, ct);
     }
 
+    public async Task<IReadOnlyList<MemoryEntry>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var requestedIds = ids
+            .Distinct()
+            .ToArray();
+
+        return await LoadEntriesByIdsAsync(requestedIds, ct);
+    }
+
     public async Task<IReadOnlyList<MemoryEntry>> ListAsync(MemoryQueryFilter filter, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(filter);
 
         var page = Math.Max(filter.Page, 1);
         var pageSize = Math.Clamp(filter.PageSize, 1, 500);
-        var candidates = await ApplyDatabaseFilter(QueryWithDetails().AsNoTracking(), filter)
-            .OrderByDescending(memory => memory.UpdatedAt)
-            .ThenByDescending(memory => memory.CreatedAt)
-            .ToArrayAsync(ct);
+        var baseQuery = ApplyDatabaseFilter(QueryBase().AsNoTracking(), filter);
+        var pagedIds = string.IsNullOrWhiteSpace(filter.Namespace)
+            ? await baseQuery
+                .OrderByDescending(memory => memory.UpdatedAt)
+                .ThenByDescending(memory => memory.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(memory => memory.Id)
+                .ToArrayAsync(ct)
+            : ApplyNamespaceFilter(
+                    await baseQuery
+                        .Select(memory => new NamespaceOrderedCandidate(memory.Id, memory.Namespace, memory.UpdatedAt, memory.CreatedAt))
+                        .ToArrayAsync(ct),
+                    filter.Namespace)
+                .OrderByDescending(memory => memory.UpdatedAt)
+                .ThenByDescending(memory => memory.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(memory => memory.Id)
+                .ToArray();
 
-        var filtered = ApplyInMemoryFilter(candidates, filter)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToArray();
+        var filtered = await LoadEntriesByIdsAsync(pagedIds, ct);
 
         _logger.LogDebug(
             "ListAsync returned {Count} memories for namespace={Namespace}, type={Type}, page={Page}, pageSize={PageSize}",
-            filtered.Length,
+            filtered.Count,
             filter.Namespace,
             filter.Type,
             page,
@@ -53,10 +83,17 @@ public sealed class MemoryRepository : IMemoryRepository
     {
         ArgumentNullException.ThrowIfNull(filter);
 
-        var candidates = await ApplyDatabaseFilter(QueryWithDetails().AsNoTracking(), filter)
+        var baseQuery = ApplyDatabaseFilter(QueryBase().AsNoTracking(), filter);
+        if (string.IsNullOrWhiteSpace(filter.Namespace))
+        {
+            return await baseQuery.CountAsync(ct);
+        }
+
+        var candidates = await baseQuery
+            .Select(memory => new NamespaceCandidate(memory.Id, memory.Namespace))
             .ToArrayAsync(ct);
 
-        return ApplyInMemoryFilter(candidates, filter).Count();
+        return ApplyNamespaceFilter(candidates, filter.Namespace).Count();
     }
 
     public async Task AddAsync(MemoryEntry entry, CancellationToken ct = default)
@@ -115,29 +152,37 @@ public sealed class MemoryRepository : IMemoryRepository
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ns);
 
-        var normalized = ns.Trim().ToLowerInvariant();
-        var entries = await _dbContext.Memories
+        var candidates = await _dbContext.Memories
+            .AsNoTracking()
             .Where(memory => !memory.ExpiresAt.HasValue || memory.ExpiresAt > DateTime.UtcNow)
+            .Select(memory => new NamespaceCandidate(memory.Id, memory.Namespace))
             .ToArrayAsync(ct);
 
-        entries = entries
-            .Where(memory =>
-                memory.Namespace.Value == normalized ||
-                memory.Namespace.Value.StartsWith($"{normalized}/", StringComparison.Ordinal))
+        var idsToDelete = ApplyNamespaceFilter(candidates, ns)
+            .Select(memory => memory.Id)
             .ToArray();
 
-        if (entries.Length == 0)
+        if (idsToDelete.Length == 0)
         {
             return;
         }
+
+        var entries = await _dbContext.Memories
+            .Where(memory => idsToDelete.Contains(memory.Id))
+            .ToArrayAsync(ct);
 
         _dbContext.Memories.RemoveRange(entries);
         await _dbContext.SaveChangesAsync(ct);
     }
 
+    private IQueryable<MemoryEntry> QueryBase()
+    {
+        return _dbContext.Memories;
+    }
+
     private IQueryable<MemoryEntry> QueryWithDetails()
     {
-        return _dbContext.Memories
+        return QueryBase()
             .AsSplitQuery()
             .Include(memory => memory.Tags)
             .Include(memory => memory.Versions)
@@ -189,19 +234,38 @@ public sealed class MemoryRepository : IMemoryRepository
         return query;
     }
 
-    private static IEnumerable<MemoryEntry> ApplyInMemoryFilter(IEnumerable<MemoryEntry> entries, MemoryQueryFilter filter)
+    private async Task<IReadOnlyList<MemoryEntry>> LoadEntriesByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
-        var filtered = entries;
-
-        if (!string.IsNullOrWhiteSpace(filter.Namespace))
+        if (ids.Count == 0)
         {
-            var normalized = filter.Namespace.Trim().ToLowerInvariant();
-            filtered = filtered.Where(memory =>
-                memory.Namespace.Value == normalized ||
-                memory.Namespace.Value.StartsWith($"{normalized}/", StringComparison.Ordinal));
+            return [];
         }
 
-        return filtered;
+        var requestedIds = ids.ToArray();
+        var entries = await QueryWithDetails()
+            .AsNoTracking()
+            .Where(memory => requestedIds.Contains(memory.Id))
+            .ToArrayAsync(ct);
+        var entryMap = entries.ToDictionary(memory => memory.Id);
+
+        return requestedIds
+            .Where(entryMap.ContainsKey)
+            .Select(id => entryMap[id])
+            .ToArray();
+    }
+
+    private static IEnumerable<TCandidate> ApplyNamespaceFilter<TCandidate>(IEnumerable<TCandidate> candidates, string? ns)
+        where TCandidate : INamespaceCandidate
+    {
+        if (string.IsNullOrWhiteSpace(ns))
+        {
+            return candidates;
+        }
+
+        var normalized = ns.Trim().ToLowerInvariant();
+        return candidates.Where(memory =>
+            memory.Namespace.Value == normalized ||
+            memory.Namespace.Value.StartsWith($"{normalized}/", StringComparison.Ordinal));
     }
 
     private void MergeScalarValues(MemoryEntry trackedEntry, MemoryEntry entry)
@@ -269,4 +333,17 @@ public sealed class MemoryRepository : IMemoryRepository
             _dbContext.Links.Add(link);
         }
     }
+
+    private interface INamespaceCandidate
+    {
+        Namespace Namespace { get; }
+    }
+
+    private sealed record NamespaceCandidate(Guid Id, Namespace Namespace) : INamespaceCandidate;
+
+    private sealed record NamespaceOrderedCandidate(
+        Guid Id,
+        Namespace Namespace,
+        DateTime UpdatedAt,
+        DateTime CreatedAt) : INamespaceCandidate;
 }

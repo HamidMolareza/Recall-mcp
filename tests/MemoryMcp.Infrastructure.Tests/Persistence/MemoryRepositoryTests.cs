@@ -1,4 +1,5 @@
 using FluentAssertions;
+using MemoryMcp.Application.Interfaces;
 using MemoryMcp.Domain.Entities;
 using MemoryMcp.Domain.Enums;
 using MemoryMcp.Domain.ValueObjects;
@@ -101,6 +102,89 @@ public sealed class MemoryRepositoryTests : IDisposable
             persisted.OutgoingLinks[0].TargetId.Should().Be(target.Id);
             persisted.OutgoingLinks[0].Relation.Should().Be(LinkRelation.References);
             persisted.OutgoingLinks[0].Label.Should().Be("references");
+        }
+    }
+
+    [Fact]
+    public async Task ListAsync_WithNamespaceFilterAndPagination_ReturnsPagedMatchesOnly()
+    {
+        var workRoot = MemoryEntry.Create("Work root", MemoryType.Fact, new Namespace("work"));
+        var workChild = MemoryEntry.Create("Work child", MemoryType.Fact, new Namespace("work/project"));
+        var personal = MemoryEntry.Create("Personal", MemoryType.Fact, new Namespace("personal"));
+
+        await using (var context = _factory.CreateContext())
+        {
+            context.Memories.AddRange(workRoot, workChild, personal);
+            await context.SaveChangesAsync();
+        }
+
+        await using (var context = _factory.CreateContext())
+        {
+            var repository = CreateRepository(context);
+            var results = await repository.ListAsync(new MemoryQueryFilter
+            {
+                Namespace = "work",
+                Page = 1,
+                PageSize = 1
+            });
+
+            results.Should().HaveCount(1);
+            results[0].Namespace.Value.Should().StartWith("work");
+
+            var count = await repository.CountAsync(new MemoryQueryFilter
+            {
+                Namespace = "work"
+            });
+
+            count.Should().Be(2);
+        }
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_ReturnsRequestedEntriesOnly()
+    {
+        var first = MemoryEntry.Create("First", MemoryType.Fact, new Namespace("repo-test"));
+        var second = MemoryEntry.Create("Second", MemoryType.Context, new Namespace("repo-test"));
+        var third = MemoryEntry.Create("Third", MemoryType.Preference, new Namespace("repo-test"));
+
+        await using (var context = _factory.CreateContext())
+        {
+            context.Memories.AddRange(first, second, third);
+            await context.SaveChangesAsync();
+        }
+
+        await using (var context = _factory.CreateContext())
+        {
+            var repository = CreateRepository(context);
+            var results = await repository.GetByIdsAsync([second.Id, first.Id]);
+
+            results.Select(memory => memory.Id).Should().ContainInOrder(second.Id, first.Id);
+            results.Should().NotContain(memory => memory.Id == third.Id);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteByNamespaceAsync_RemovesMatchingNamespaceAndChildrenOnly()
+    {
+        var workRoot = MemoryEntry.Create("Work root", MemoryType.Fact, new Namespace("work"));
+        var workChild = MemoryEntry.Create("Work child", MemoryType.Fact, new Namespace("work/project"));
+        var personal = MemoryEntry.Create("Personal", MemoryType.Fact, new Namespace("personal"));
+
+        await using (var context = _factory.CreateContext())
+        {
+            context.Memories.AddRange(workRoot, workChild, personal);
+            await context.SaveChangesAsync();
+        }
+
+        await using (var context = _factory.CreateContext())
+        {
+            var repository = CreateRepository(context);
+            await repository.DeleteByNamespaceAsync("work");
+        }
+
+        await using (var context = _factory.CreateContext())
+        {
+            context.Memories.Select(memory => memory.Namespace.Value).Should().BeEquivalentTo(["personal"]);
         }
     }
 
