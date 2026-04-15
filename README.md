@@ -269,6 +269,32 @@ dotnet run --project src/MemoryMcp.Server
 
 The server uses stdio transport and reads configuration from `src/MemoryMcp.Server/appsettings.json`.
 
+## Runtime Notes
+
+- In the main configured setup for this repo, the SQLite database and rolling logs live under `app-data/`.
+- If you run the server directly with cwd-relative settings, make sure the resolved database path and log path point where you expect. Different launch directories can otherwise create confusing split state.
+- Recent runtime logs in `app-data/logs/` are useful for checking provider fallback behavior, slow searches, and startup path resolution.
+
+## Troubleshooting
+
+### Repeated embedding fallback warnings
+
+If you see repeated warnings about the embedding provider and the server keeps working, the server is intentionally degrading to local deterministic embeddings instead of crashing.
+
+Common causes:
+
+- the configured remote embedding model is unavailable
+- the provider endpoint is unreachable
+- the API key is missing or rejected
+- the request timed out
+
+When using GapGPT/OpenAI-compatible configuration, verify that the embedding model is actually available on the configured endpoint. If your remote provider does not expose embeddings, keep:
+
+- `Embedding.Provider = "Ollama"`
+- `AI.Provider = "GapGpt"`
+
+That mixed mode is supported and is usually the safest setup.
+
 ## Validation
 
 ```bash

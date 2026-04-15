@@ -99,15 +99,41 @@ public sealed class InMemoryVectorStore : IVectorStore
             _lock.ExitReadLock();
         }
 
-        var results = snapshot
+        var scoredResults = snapshot
             .AsParallel()
             .WithCancellation(ct)
-            .Select(pair => new VectorSearchResult(pair.Key, query.CosineSimilarity(pair.Value)))
+            .Select(pair => TryScore(query, pair))
+            .Where(static result => result is not null)
+            .Select(static result => result!)
+            .ToArray();
+
+        var skippedCount = snapshot.Length - scoredResults.Length;
+        if (skippedCount > 0)
+        {
+            _logger.LogWarning(
+                "Skipped {SkippedCount} vector candidates with mismatched dimensions for query dimension {QueryDimensions}",
+                skippedCount,
+                query.Dimensions);
+        }
+
+        var results = scoredResults
             .OrderByDescending(result => result.Score)
             .Take(Math.Clamp(topK, 1, 500))
             .ToArray();
 
         return Task.FromResult<IReadOnlyList<VectorSearchResult>>(results);
+    }
+
+    private static VectorSearchResult? TryScore(
+        EmbeddingVector query,
+        KeyValuePair<Guid, EmbeddingVector> pair)
+    {
+        if (query.Dimensions != pair.Value.Dimensions)
+        {
+            return null;
+        }
+
+        return new VectorSearchResult(pair.Key, query.CosineSimilarity(pair.Value));
     }
 
     public Task ReplaceAsync(IEnumerable<VectorIndexEntry> entries, CancellationToken ct = default)

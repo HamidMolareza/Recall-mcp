@@ -29,6 +29,23 @@ public class InMemoryVectorStoreTests
     }
 
     [Fact]
+    public async Task SearchAsync_SkipsVectorsWithMismatchedDimensions()
+    {
+        var logger = Substitute.For<ILogger<InMemoryVectorStore>>();
+        var store = new InMemoryVectorStore(logger);
+        var matchingId = Guid.NewGuid();
+        var mismatchedId = Guid.NewGuid();
+
+        await store.UpsertAsync(matchingId, new EmbeddingVector([1.0f, 0.0f, 0.0f]), "work");
+        await store.UpsertAsync(mismatchedId, new EmbeddingVector([1.0f, 0.0f]), "work");
+
+        var results = await store.SearchAsync(new EmbeddingVector([1.0f, 0.0f, 0.0f]), 10);
+
+        results.Should().ContainSingle(result => result.MemoryId == matchingId);
+        results.Should().NotContain(result => result.MemoryId == mismatchedId);
+    }
+
+    [Fact]
     public async Task GetSnapshot_ReturnsEntryCountsByNamespace()
     {
         var logger = Substitute.For<ILogger<InMemoryVectorStore>>();

@@ -23,20 +23,25 @@ public sealed class RebuildVectorIndexTool
         _logger = logger;
     }
 
-    [McpServerTool(Name = "rebuild_vector_index"), Description("Rebuilds the in-memory vector index from persisted embeddings in SQLite.")]
-    public async Task<object> RebuildVectorIndexAsync(CancellationToken ct = default)
+    [McpServerTool(Name = "rebuild_vector_index"), Description("Rebuilds the in-memory vector index from persisted embeddings in SQLite and can optionally re-generate embeddings for all memories using the configured provider/model.")]
+    public async Task<object> RebuildVectorIndexAsync(
+        [Description("When true, re-generates embeddings for all persisted memories before rebuilding the in-memory vector index.")]
+        bool regenerateEmbeddings = false,
+        CancellationToken ct = default)
     {
         return await ToolExecutionHelper.ExecuteAsync("rebuild_vector_index", _logger, _operationNoticeSink, async innerCt =>
         {
-            var rebuild = await _vectorIndexMaintenanceService.RebuildAsync(innerCt);
+            var rebuild = await _vectorIndexMaintenanceService.RebuildAsync(regenerateEmbeddings, innerCt);
 
             _logger.LogInformation(
-                "{IsAudit} Rebuilt the in-memory vector index from {PersistedEmbeddingCount} persisted embeddings",
+                "{IsAudit} Rebuilt the in-memory vector index from {PersistedEmbeddingCount} persisted embeddings; re-generated {ReembeddedMemoryCount} embeddings",
                 true,
-                rebuild.PersistedEmbeddingCount);
+                rebuild.PersistedEmbeddingCount,
+                rebuild.ReembeddedMemoryCount);
 
             return new RebuildVectorIndexResult(
                 rebuild.PersistedEmbeddingCount,
+                rebuild.ReembeddedMemoryCount,
                 new RuntimeVectorIndexStatus(
                     rebuild.Snapshot.EntryCount,
                     rebuild.Snapshot.NamespacedEntryCount,
@@ -48,4 +53,5 @@ public sealed class RebuildVectorIndexTool
 
 public sealed record RebuildVectorIndexResult(
     int PersistedEmbeddingCount,
+    int ReembeddedMemoryCount,
     RuntimeVectorIndexStatus VectorIndex);

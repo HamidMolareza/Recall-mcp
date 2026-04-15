@@ -92,9 +92,9 @@ public static class DependencyInjection
                 options.Model,
                 options.BaseUrl);
 
-            return options.Provider.ToLowerInvariant() switch
+            return options.Provider.Trim().ToLowerInvariant() switch
             {
-                "gapgpt" or "openaicompatible" or "openai-compatible" when !string.IsNullOrWhiteSpace(options.ApiKey)
+                "gapgpt" or "metisai" or "openaicompatible" or "openai-compatible" when !string.IsNullOrWhiteSpace(options.ApiKey)
                     => ActivatorUtilities.CreateInstance<OpenAiResponseSummarizer>(serviceProvider),
                 _ => ActivatorUtilities.CreateInstance<SimpleTextSummarizer>(serviceProvider)
             };
@@ -121,12 +121,12 @@ public static class DependencyInjection
 
             return providerKey switch
             {
-                "gapgpt" or "openaicompatible" or "openai-compatible" when !string.IsNullOrWhiteSpace(options.ApiKey)
+                "gapgpt" or "metisai" or "openaicompatible" or "openai-compatible" when !string.IsNullOrWhiteSpace(options.ApiKey)
                     => LogSelectedEmbeddingProvider(
                         logger,
                         ActivatorUtilities.CreateInstance<OpenAiCompatibleEmbeddingProvider>(serviceProvider),
                         "OpenAI-compatible"),
-                "gapgpt" or "openaicompatible" or "openai-compatible"
+                "gapgpt" or "metisai" or "openaicompatible" or "openai-compatible"
                     => LogSelectedEmbeddingProvider(
                         logger,
                         serviceProvider.GetRequiredService<DeterministicEmbeddingProvider>(),
@@ -211,7 +211,7 @@ file sealed class DeterministicEmbeddingProvider : IEmbeddingProvider
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
         var providerKey = _options.Provider.Trim().ToLowerInvariant();
-        if (providerKey is "gapgpt" or "openaicompatible" or "openai-compatible")
+        if (providerKey is "gapgpt" or "metisai" or "openaicompatible" or "openai-compatible")
         {
             _operationNoticeSink.AddWarning(new OperationWarning(
                 "embedding_provider_not_configured",

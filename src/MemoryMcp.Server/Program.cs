@@ -23,7 +23,8 @@ try
 {
     Log.Information("Starting MemoryMcp server");
 
-    var builder = Host.CreateApplicationBuilder(args);
+    var startupOptions = StartupOptions.Parse(args);
+    var builder = Host.CreateApplicationBuilder(startupOptions.HostArgs);
     EnsureBaseFolders(builder.Configuration);
 
     builder.Services.Configure<StorageSettings>(builder.Configuration.GetSection(StorageSettings.SectionName));
@@ -44,7 +45,16 @@ try
 
     var app = builder.Build();
     LogStartupConfiguration(builder.Configuration);
-    await InitializePersistenceAsync(app.Services);
+    await InitializePersistenceAsync(app.Services, startupOptions.RegenerateEmbeddings);
+    if (startupOptions.MaintenanceOnly)
+    {
+        Log.Information(
+            "Completed maintenance startup. RebuildVectorIndex={RebuildVectorIndex}, RegenerateEmbeddings={RegenerateEmbeddings}",
+            startupOptions.RebuildVectorIndex,
+            startupOptions.RegenerateEmbeddings);
+        return;
+    }
+
     await app.RunAsync();
 }
 catch (Exception ex)
@@ -88,7 +98,7 @@ static void ConfigureSerilog(HostApplicationBuilder builder)
     });
 }
 
-static async Task InitializePersistenceAsync(IServiceProvider services)
+static async Task InitializePersistenceAsync(IServiceProvider services, bool regenerateEmbeddings = false)
 {
     await using var scope = services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<MemoryDbContext>();
@@ -97,8 +107,11 @@ static async Task InitializePersistenceAsync(IServiceProvider services)
     Log.Debug("Ensuring database is created at startup");
 
     await dbContext.Database.EnsureCreatedAsync();
-    var rebuild = await vectorIndexMaintenance.RebuildAsync();
-    Log.Information("Loaded {Count} persisted embeddings into the in-memory vector index", rebuild.PersistedEmbeddingCount);
+    var rebuild = await vectorIndexMaintenance.RebuildAsync(regenerateEmbeddings);
+    Log.Information(
+        "Loaded {Count} persisted embeddings into the in-memory vector index; re-generated {ReembeddedMemoryCount} embeddings",
+        rebuild.PersistedEmbeddingCount,
+        rebuild.ReembeddedMemoryCount);
 }
 
 static void EnsureBaseFolders(IConfiguration configuration)
@@ -138,4 +151,41 @@ static void LogStartupConfiguration(IConfiguration configuration)
         configuration.GetSection(EmbeddingSettings.SectionName)["BaseUrl"],
         configuration.GetSection(AiSettings.SectionName)["Provider"],
         configuration.GetSection(AiSettings.SectionName)["BaseUrl"]);
+}
+
+file sealed record StartupOptions(
+    bool RebuildVectorIndex,
+    bool RegenerateEmbeddings,
+    bool MaintenanceOnly,
+    string[] HostArgs)
+{
+    public static StartupOptions Parse(string[] args)
+    {
+        var hostArgs = new List<string>(args.Length);
+        var rebuildVectorIndex = false;
+        var regenerateEmbeddings = false;
+
+        foreach (var arg in args)
+        {
+            switch (arg)
+            {
+                case "--rebuild-vector-index":
+                    rebuildVectorIndex = true;
+                    break;
+                case "--reembed-embeddings":
+                    rebuildVectorIndex = true;
+                    regenerateEmbeddings = true;
+                    break;
+                default:
+                    hostArgs.Add(arg);
+                    break;
+            }
+        }
+
+        return new StartupOptions(
+            rebuildVectorIndex,
+            regenerateEmbeddings,
+            rebuildVectorIndex,
+            hostArgs.ToArray());
+    }
 }

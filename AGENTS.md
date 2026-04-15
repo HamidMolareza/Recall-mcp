@@ -22,6 +22,7 @@
 
 ## Logging and Runtime
 - Logs and database live under `app-data/` in the main configured setup.
+- Keep checked-in runtime path guidance aligned with `app-data/`, or document clearly when effective paths depend on the caller's current working directory.
 - Keep logs useful for diagnosis; prefer structured messages with ids, namespaces, provider names, and outcomes.
 - Warning-level fallback logs are acceptable when external AI/network calls fail and the app continues locally.
 
