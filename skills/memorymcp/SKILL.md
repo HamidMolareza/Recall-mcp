@@ -33,6 +33,7 @@ Use the configured `memorymcp` MCP server as the durable memory layer for Codex.
 
 ## Choose The Right Tool
 
+- If only a partial `memorymcp` tool surface is visible, do not assume missing tools are unsupported. Use tool discovery with exact names such as `store_memory`, `update_memory`, `list_memories`, or `summarize_conversation` before falling back to ad-hoc notes or local files.
 - Use `search_memories` for semantic recall when only the meaning is known.
 - Use `list_memories` for exact browsing by namespace, type, tag, date, or pagination.
 - Use `get_memory` when the memory ID is already known.

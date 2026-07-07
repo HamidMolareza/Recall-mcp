@@ -65,6 +65,28 @@ public sealed class MemoryTypeToolArgumentTests
         response.Error.Message.Should().Contain("'type' must be one of:");
     }
 
+    [Fact]
+    public async Task UpdateMemoryAsync_WithExpiresAtAndClearExpiresAt_ReturnsStructuredError()
+    {
+        var tool = new UpdateMemoryTool(
+            null!,
+            null!,
+            null!,
+            null!,
+            new TestOperationNoticeSink(),
+            NullLogger<UpdateMemoryTool>.Instance);
+
+        var response = (ToolResponse)await tool.UpdateMemoryAsync(
+            Guid.NewGuid(),
+            expiresAt: DateTime.UtcNow.AddDays(1),
+            clearExpiresAt: true);
+
+        response.Ok.Should().BeFalse();
+        response.Error.Should().NotBeNull();
+        response.Error!.Code.Should().Be("invalid_request");
+        response.Error.Message.Should().Contain("Use either expiresAt or clearExpiresAt");
+    }
+
     private sealed class TestOperationNoticeSink : IOperationNoticeSink
     {
         public void AddWarning(OperationWarning warning)

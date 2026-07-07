@@ -10,5 +10,6 @@ public sealed record UpdateMemoryRequest
     public MemoryType? Type { get; init; }
     public IReadOnlyList<string>? Tags { get; init; }
     public DateTime? ExpiresAt { get; init; }
+    public bool UpdateExpiresAt { get; init; }
     public EmbeddingVector? Embedding { get; init; }
 }

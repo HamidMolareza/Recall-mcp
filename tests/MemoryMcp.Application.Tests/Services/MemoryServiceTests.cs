@@ -113,6 +113,49 @@ public class MemoryServiceTests
     }
 
     [Fact]
+    public async Task UpdateAsync_WhenExpiresAtIsNotRequested_PreservesExistingExpiration()
+    {
+        var expiresAt = DateTime.UtcNow.AddDays(3);
+        var existing = MemoryEntry.Create(
+            "Content",
+            MemoryType.Fact,
+            new Namespace("work/project-x"),
+            expiresAt: expiresAt);
+
+        _repository.GetByIdAsync(existing.Id, Arg.Any<CancellationToken>())
+            .Returns(existing);
+
+        var result = await _sut.UpdateAsync(new UpdateMemoryRequest
+        {
+            Id = existing.Id,
+            Type = MemoryType.Preference
+        });
+
+        result.ExpiresAt.Should().Be(expiresAt);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenExpiresAtUpdateRequested_ClearsExistingExpiration()
+    {
+        var existing = MemoryEntry.Create(
+            "Content",
+            MemoryType.Fact,
+            new Namespace("work/project-x"),
+            expiresAt: DateTime.UtcNow.AddDays(3));
+
+        _repository.GetByIdAsync(existing.Id, Arg.Any<CancellationToken>())
+            .Returns(existing);
+
+        var result = await _sut.UpdateAsync(new UpdateMemoryRequest
+        {
+            Id = existing.Id,
+            UpdateExpiresAt = true
+        });
+
+        result.ExpiresAt.Should().BeNull();
+    }
+
+    [Fact]
     public async Task GetByIdAsync_WhenMemoryMissing_ThrowsMemoryNotFoundException()
     {
         var id = Guid.NewGuid();

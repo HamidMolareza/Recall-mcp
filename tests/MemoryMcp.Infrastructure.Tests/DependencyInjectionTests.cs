@@ -31,6 +31,12 @@ public sealed class DependencyInjectionTests
     [Fact]
     public async Task AddInfrastructure_WithMetisaiProviderAndMissingApiKey_UsesConfiguredProviderWarning()
     {
+        using var environment = new EnvironmentVariableScope(
+            "MEMORYMCP_EMBEDDING_API_KEY",
+            "MEMORYMCP_AI_API_KEY",
+            "GAPGPT_API_KEY",
+            "OPENAI_API_KEY");
+
         using var provider = CreateServiceProvider(new Dictionary<string, string?>
         {
             ["Embedding:Provider"] = "Metisai",
@@ -62,5 +68,30 @@ public sealed class DependencyInjectionTests
             .AddApplication()
             .AddInfrastructure(configuration)
             .BuildServiceProvider();
+    }
+
+    private sealed class EnvironmentVariableScope : IDisposable
+    {
+        private readonly IReadOnlyDictionary<string, string?> _originalValues;
+
+        public EnvironmentVariableScope(params string[] names)
+        {
+            _originalValues = names.ToDictionary(
+                static name => name,
+                Environment.GetEnvironmentVariable);
+
+            foreach (var name in names)
+            {
+                Environment.SetEnvironmentVariable(name, null);
+            }
+        }
+
+        public void Dispose()
+        {
+            foreach (var (name, value) in _originalValues)
+            {
+                Environment.SetEnvironmentVariable(name, value);
+            }
+        }
     }
 }

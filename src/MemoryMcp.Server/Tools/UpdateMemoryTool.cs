@@ -42,10 +42,17 @@ public sealed class UpdateMemoryTool
         string? type = null,
         string[]? tags = null,
         DateTime? expiresAt = null,
+        [Description("When true, clears the memory expiration. Cannot be combined with expiresAt.")]
+        bool clearExpiresAt = false,
         CancellationToken ct = default)
     {
         return await ToolExecutionHelper.ExecuteAsync("update_memory", _logger, _operationNoticeSink, async innerCt =>
         {
+            if (clearExpiresAt && expiresAt.HasValue)
+            {
+                throw new ArgumentException("Use either expiresAt or clearExpiresAt, not both.", nameof(clearExpiresAt));
+            }
+
             var parsedType = MemoryTypeArgumentParser.ParseOptional(type, nameof(type));
             IReadOnlyList<Guid> duplicateIds = [];
             IReadOnlyList<Guid> contradictionIds = [];
@@ -65,7 +72,8 @@ public sealed class UpdateMemoryTool
                 Content = content,
                 Type = parsedType,
                 Tags = tags,
-                ExpiresAt = expiresAt,
+                ExpiresAt = clearExpiresAt ? null : expiresAt,
+                UpdateExpiresAt = expiresAt.HasValue || clearExpiresAt,
                 Embedding = embedding
             }, innerCt);
 

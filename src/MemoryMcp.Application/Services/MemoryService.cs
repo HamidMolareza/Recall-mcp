@@ -96,7 +96,7 @@ public sealed class MemoryService
             entry.ReplaceTags(request.Tags);
         }
 
-        if (request.ExpiresAt != entry.ExpiresAt)
+        if (request.UpdateExpiresAt && request.ExpiresAt != entry.ExpiresAt)
         {
             entry.SetExpiration(request.ExpiresAt);
         }
