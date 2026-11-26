@@ -1,5 +1,17 @@
 # MemoryMcp
 
+> **Archived (2026-11-26).** This project is no longer maintained, and the repository is read-only.
+> Claude Code's built-in auto memory and plain project docs (`CLAUDE.md` / `AGENTS.md`) now cover the author's use
+> case. Known limitations if you build it anyway:
+>
+> - Package versions float (`OpenAI 2.*`, `ModelContextProtocol 1.*`, `10.0.0-*`), so a fresh restore no longer
+>   builds: `OpenAI` 2.15.0 changed the Responses API used by `OpenAiResponseSummarizer`, and restore fails with
+>   NU1605 package-downgrade errors. Pin the versions before use.
+> - Only `get_memory` updates `LastAccessedAt`; `search_memories` does not, so `find_stale_memories` can flag
+>   memories that searches still find.
+> - Contradiction detection is an English-only negation heuristic.
+> - There is no license file, so no license is granted.
+
 `MemoryMcp` is a local-first MCP server for persistent memory. It lets an MCP client store facts, preferences, instructions, context, and conversation summaries, then retrieve them later with both exact filtering and semantic search.
 
 The project is built on .NET 10 and follows a pragmatic clean-architecture split:
